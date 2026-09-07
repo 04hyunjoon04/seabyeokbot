@@ -14,7 +14,7 @@ const { hasPermission } = require("./utils").permissions;
 async function checkAndModerate(evt) {
   const { userRoleCode, content, chatChannelId, senderChannelId, messageTime } = evt;
 
-  // 매니저 이상은 금칙어 검사 대상에서 제외 (뚜봇의 광고 필터와 동일한 방침)
+  // 매니저 이상은 금칙어 검사 대상에서 제외 (운영진이 안내차 링크/문구를 올려야 할 때도 있으니까)
   if (hasPermission(userRoleCode, "manager")) return false;
 
   const matched = banwordStore.findMatch(content);

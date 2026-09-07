@@ -63,7 +63,7 @@ function hasPermission(userRoleCode, required) {
 const permissions = { LEVELS, levelOf, hasPermission };
 
 // ---- template: 아주 단순한 변수 치환기. $nick / $name 정도만 우선 지원 ----
-// (뚜봇처럼 $follow_check, $att_add 같은 고급 변수는 추후 필요할 때 추가)
+// (팔로우 확인, 출석 횟수 같은 고급 변수는 실제로 필요해지면 추후 추가 예정)
 function render(text, ctx) {
   return text
     .replace(/\$nick\b/g, ctx.nickname || "")

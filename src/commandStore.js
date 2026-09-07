@@ -53,7 +53,7 @@ function add(name, responseText, opts = {}) {
   const key = normalizeName(name);
   commands[key] = {
     responses: responseText.split("||").map((s) => s.trim()),
-    permission: opts.permission || "everyone", // 뚜봇과 동일하게 기본값은 누구나 사용 가능(생성 자체는 매니저 이상만 가능)
+    permission: opts.permission || "everyone", // 기본값은 누구나 사용 가능(명령어를 새로 만드는 것 자체는 매니저 이상만 가능)
     cooldownSec: opts.cooldownSec ?? 3,
     userCooldownSec: opts.userCooldownSec ?? 3,
     enabled: true,
