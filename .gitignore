@@ -1,0 +1,11 @@
+node_modules/
+.env
+data/*.json
+!data/.gitkeep
+*.log
+
+# electron-builder 빌드 결과물 (GitHub Actions가 자동으로 빌드해서 만들어주니 커밋할 필요 없음)
+dist/
+
+# Visual Studio가 만드는 캐시/인덱스 폴더 (내 컴퓨터에만 필요, 깃허브에 올릴 필요 없음)
+.vs/

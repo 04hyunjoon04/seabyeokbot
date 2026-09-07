@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>새벽봇 로그</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: #1b1f27; color: #d7dbe4;
+    font-family: 'Consolas', 'D2Coding', monospace; font-size: 13px;
+  }
+  #toolbar {
+    position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 10px 14px; background: #20242e; border-bottom: 1px solid #2c313d;
+  }
+  #toolbar .muted { color: #9aa0ad; font-size: 12px; }
+  #toolbar button {
+    background: #2c313d; color: #d7dbe4; border: none; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-size: 12px; flex-shrink: 0;
+  }
+  #toolbar button:hover { background: #383e4d; }
+  #log { padding: 12px 14px; white-space: pre-wrap; word-break: break-all; line-height: 1.7; }
+  #log:empty::before { content: '이 창을 연 시점 이후의 로그가 여기에 실시간으로 쌓여요. 채팅에 메시지를 남겨서 확인해보세요.'; color: #6b7180; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span class="muted">이 창을 연 시점부터의 로그만 보여줘요 (이전 로그는 표시 안 함)</span>
+  <button onclick="clearLogs()">전체 로그 지우기</button>
+</div>
+<div id="log"></div>
+<script>
+const startTime = Date.now();
+const logEl = document.getElementById('log');
+
+async function poll() {
+  try {
+    const res = await fetch('/api/bot/logs');
+    const json = await res.json();
+    if (!json.ok) return;
+    const entries = json.data.filter((e) => e.time >= startTime);
+    const wasAtBottom = window.scrollY + window.innerHeight >= document.body.scrollHeight - 20;
+    logEl.textContent = entries
+      .map((e) => `[${new Date(e.time).toLocaleTimeString('ko-KR')}] ${e.message}`)
+      .join('\n');
+    if (wasAtBottom) window.scrollTo(0, document.body.scrollHeight);
+  } catch (_err) {
+    // 창이 아직 서버에 연결 못 했거나 일시적 오류 — 다음 폴링에서 재시도
+  }
+}
+
+async function clearLogs() {
+  try {
+    await fetch('/api/bot/logs', { method: 'DELETE' });
+  } catch (_err) {}
+  logEl.textContent = '';
+}
+
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

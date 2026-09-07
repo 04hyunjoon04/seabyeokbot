@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>새벽봇 관리 페이지</title>
+<style>
+  :root {
+    --bg: #f5f6fa;
+    --panel: #ffffff;
+    --border: #e3e5ea;
+    --text: #1f2430;
+    --muted: #7a8092;
+    --accent: #6c5ce7;
+    --accent-dark: #5b4bd1;
+    --danger: #e74c3c;
+    --danger-dark: #c0392b;
+    --ok: #2ecc71;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  aside {
+    width: 220px;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    flex-shrink: 0;
+  }
+  .channel-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px 16px; margin: 0 0 8px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .channel-header:hover { background: #f7f7fb; }
+  .channel-avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    background: #e3e5ea; overflow: hidden;
+  }
+  .channel-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .channel-name {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 20px;
+    border: none;
+    background: none;
+    font-size: 14px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .nav-item:hover { background: #f0f0f7; }
+  .nav-item.active { background: var(--accent); color: white; font-weight: 600; }
+
+  main { flex: 1; padding: 28px 36px; height: 100vh; overflow-y: auto; }
+  .page-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  .page-sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+  button.primary {
+    background: var(--accent); color: white; border: none;
+    padding: 9px 16px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent-dark); }
+  button.danger {
+    background: var(--danger); color: white; border: none;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+  button.danger:hover { background: var(--danger-dark); }
+  button.ghost {
+    background: white; border: 1px solid var(--border); color: var(--text);
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  thead { background: #fafafd; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  }
+  .badge.everyone { background: #eef1ff; color: #4c5ecf; }
+  .badge.manager { background: #e8f3ff; color: #2f80c7; }
+  .badge.streamer { background: #fff2e0; color: #d6821b; }
+
+  .inline-select {
+    padding: 5px 10px; border-radius: 999px; border: 1px solid transparent;
+    font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+  }
+  .inline-select.everyone { background: #eef1ff; color: #4c5ecf; }
+  .inline-select.manager { background: #e8f3ff; color: #2f80c7; }
+  .inline-select.streamer { background: #fff2e0; color: #d6821b; }
+
+  .cooldown-input {
+    width: 64px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; font-family: inherit; text-align: right;
+  }
+
+  .switch { position: relative; display: inline-block; width: 38px; height: 21px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; inset: 0; background: #d5d7de; border-radius: 999px; transition: 0.15s; }
+  .slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 2.5px; background: white; border-radius: 50%; transition: 0.15s; }
+  input:checked + .slider { background: var(--accent); }
+  input:checked + .slider::before { transform: translateX(17px); }
+
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(20,20,30,0.35);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal {
+    background: white; border-radius: 10px; padding: 24px; width: 420px; max-width: 90vw;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18);
+  }
+  .modal h2 { margin: 0 0 16px; font-size: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field input[type="text"], .field input[type="password"], .field textarea, .field select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit;
+  }
+  .field select { padding-right: 6px; }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; min-width: 0; }
+  .field-row .field.grow { flex: 2.2; }
+  .field-row .field.narrow { flex: 0 0 64px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .modal-actions button { flex: 1; padding: 10px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
+  .modal-actions .cancel { background: #f0f0f4; }
+  .modal-actions .confirm { background: var(--accent); color: white; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+
+  .card {
+    background: var(--panel); border-radius: 10px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04); max-width: 480px;
+  }
+  .card h3 { margin: 0 0 14px; font-size: 14px; }
+  .card .field:last-of-type { margin-bottom: 16px; }
+  .status-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px;
+  }
+  .info-tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%; background: #e3e5ea; color: #7a8092;
+    font-size: 10px; font-weight: 700; cursor: help; position: relative; flex-shrink: 0;
+    margin-left: 5px; vertical-align: middle;
+  }
+  .info-tip:hover { background: #d5d8e0; }
+  .info-tip .info-tip-bubble { display: none; }
+  .info-tip:hover .info-tip-bubble { display: block; }
+  .info-tip-bubble {
+    position: absolute; bottom: 135%; left: 50%; transform: translateX(-50%);
+    background: #1f2430; color: white; padding: 8px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 400; line-height: 1.5; white-space: normal;
+    width: 230px; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.18); cursor: default;
+  }
+  .info-tip-bubble::after {
+    content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: #1f2430;
+  }
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #d5d7de; }
+  .status-dot.ok { background: var(--ok); }
+  .status-dot.error { background: var(--danger); }
+  .status-dot.pending { background: #f0ad4e; }
+
+  .token-value { font-family: 'Consolas', 'D2Coding', monospace; font-size: 12px; letter-spacing: 0.5px; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1f2430; color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="channel-header" id="channelHeader" title="계정 연동 설정 열기">
+    <div class="channel-avatar" id="channelAvatar"></div>
+    <div class="channel-name" id="channelLabel">불러오는 중...</div>
+  </div>
+  <button class="nav-item active" data-page="commands">유저 명령어</button>
+  <button class="nav-item" data-page="system">시스템 명령어</button>
+  <button class="nav-item" data-page="banwords">금칙어</button>
+</aside>
+
+<main>
+  <!-- 유저 명령어 -->
+  <section id="page-commands">
+    <div class="page-title">유저 명령어</div>
+    <div class="page-sub">채팅에서 <code>!추가</code>로 만든 명령어도 여기서 같이 관리돼요.</div>
+    <div class="toolbar"><button class="primary" onclick="openCommandModal()">+ 명령어 추가</button></div>
+    <table>
+      <thead><tr><th>명령어</th><th>응답</th><th>필요 권한</th><th>쿨타임</th><th>사용 횟수</th><th>활성</th><th></th></tr></thead>
+      <tbody id="commandsBody"></tbody>
+    </table>
+  </section>
+
+  <!-- 시스템 명령어 -->
+  <section id="page-system" style="display:none">
+    <div class="page-title">시스템 명령어</div>
+    <div class="page-sub">봇에 내장된 명령어예요. 여기서는 삭제·수정할 수 없어요.</div>
+    <table>
+      <thead><tr><th>명령어</th><th>설명</th><th>필요 권한</th><th>쿨타임</th><th>활성</th></tr></thead>
+      <tbody id="systemBody"></tbody>
+    </table>
+  </section>
+
+  <!-- 금칙어 -->
+  <section id="page-banwords" style="display:none">
+    <div class="page-title">금칙어</div>
+    <div class="page-sub">매니저 이상은 검사 대상에서 제외돼요. 영구 차단(벤)은 치지직 공식 API에 없어 지원하지 않아요.</div>
+    <div class="toolbar"><button class="primary" onclick="openBanwordModal()">+ 금칙어 추가</button></div>
+    <table>
+      <thead><tr><th>금칙어</th><th>제재 방식</th><th>활성</th><th></th></tr></thead>
+      <tbody id="banwordsBody"></tbody>
+    </table>
+  </section>
+
+  <!-- 계정 연동 -->
+  <section id="page-account" style="display:none">
+    <div class="page-title">계정 연동 <span class="muted" id="appVersionLabel" style="font-size:0.6em; font-weight:normal;"></span></div>
+    <div class="page-sub">이 봇을 치지직 계정/방송 채널과 연결하는 데 필요한 설정이에요. 프로필을 눌러 언제든 다시 열 수 있어요.</div>
+
+    <div class="card">
+      <h3>치지직 애플리케이션 정보</h3>
+      <div class="field"><label>Client ID
+        <span class="info-tip">?<span class="info-tip-bubble">치지직 개발자 센터(developers.chzzk.naver.com)에서 애플리케이션을 등록하면 발급되는 고유 ID예요. 이미 등록해서 발급받은 값을 그대로 붙여넣으면 돼요.</span></span>
+      </label><input type="text" id="authClientId" placeholder="developers.chzzk.naver.com 에서 발급받은 값" /></div>
+      <div class="field"><label>Client Secret
+        <span class="info-tip">?<span class="info-tip-bubble">Client ID와 함께 발급되는 비밀 값이에요. 계정 해킹에 쓰일 수 있으니 절대 남에게 공유하면 안 돼요. 이미 저장돼 있으면 비워둬도 기존 값이 유지돼요.</span></span>
+      </label><input type="password" id="authClientSecret" placeholder="" /></div>
+      <div class="field"><label>채널 ID
+        <span class="info-tip">?<span class="info-tip-bubble">봇이 활동할 방송 채널의 고유 ID예요. 내 치지직 채널 주소(chzzk.naver.com/뒤에 나오는 긴 문자열)의 마지막 부분을 그대로 넣으면 돼요.</span></span>
+      </label><input type="text" id="authChannelId" /></div>
+      <div class="field"><label>Redirect URI
+        <span class="info-tip">?<span class="info-tip-bubble">치지직 개발자 센터의 애플리케이션 설정에 등록해둔 Redirect URI를 그대로 붙여넣으세요(예: http://localhost:8090/callback). 컴퓨터마다 다른 포트를 쓰고 있다면 각자 등록한 값을 넣으면 돼요. 저장 후에는 앱을 재시작해야 적용돼요.</span></span>
+      </label><input type="text" id="authRedirectUri" placeholder="http://localhost:8090/callback" /></div>
+      <button class="primary" onclick="saveAuthConfig()">저장</button>
+      <div class="hint">Redirect URI를 바꾸면 저장 후 앱을 껐다 다시 켜야 적용돼요.</div>
+    </div>
+
+    <div class="card">
+      <h3>치지직 인가 (공식 로그인)
+        <span class="info-tip">?<span class="info-tip-bubble">봇 전용 계정 아이디/비밀번호를 저장하는 대신, 치지직 공식 로그인 동의 화면에서 방송인(또는 매니저 계정)이 한 번 "허용"을 눌러서 권한을 내주는 방식이에요. 이 앱은 그 권한으로 채팅을 읽고/쓰고 제재해요.</span></span>
+      </h3>
+      <div class="status-row"><span class="status-dot" id="oauthStatusDot"></span><span id="oauthStatusText" class="muted">확인 중...</span></div>
+      <div style="display:flex; gap:8px;">
+        <button class="primary" onclick="startOAuth()">치지직 인가 페이지 열기</button>
+        <button class="ghost" onclick="clearOAuth()">인가 해제</button>
+      </div>
+      <div class="hint">버튼을 누르면 브라우저가 열려요. 치지직 로그인 후 "허용"을 누르면 자동으로 이 앱에 연결돼요. 봇으로 쓰고 싶은 별도 계정이 있다면, 그 계정으로 로그인해서 허용해주세요(그 계정 이름으로 채팅이 나가요).</div>
+      <div class="hint">인가는 한 번만 해두면 돼요 — 이 앱을 30일 안에 한 번씩만 켜두면 만료 전에 자동으로 갱신돼서 다시 인가할 필요가 없어요. 30일 넘게 앱을 아예 안 켜두면 만료돼서 다시 인가해야 해요.</div>
+      <div class="hint" id="oauthMessage"></div>
+    </div>
+
+    <div class="card">
+      <h3>발급된 토큰 (accessToken / refreshToken)
+        <span class="info-tip">?<span class="info-tip-bubble">인가 후 발급된 API 접근 값이에요. 이 값이 유출되면 그 권한(채팅 읽기/쓰기/제재 등)으로 API가 대신 호출될 수 있으니, 절대 다른 사람에게 보여주거나 전달하면 안 돼요.</span></span>
+      </h3>
+      <div class="field"><label>accessToken</label><input class="token-value" type="text" id="accessTokenValue" readonly placeholder="인가 후 표시돼요" /></div>
+      <div class="field"><label>refreshToken</label><input class="token-value" type="text" id="refreshTokenValue" readonly placeholder="인가 후 표시돼요" /></div>
+      <button class="ghost" id="toggleTokenBtn" onclick="toggleTokenVisibility()" disabled>값 보기</button>
+      <div class="hint" id="tokenSavedHint"></div>
+    </div>
+
+    <div class="card">
+      <h3>봇 연결 상태
+        <span class="info-tip">?<span class="info-tip-bubble">봇이 지금 실제로 치지직 채팅 서버에 연결돼서 채팅을 주고받을 수 있는 상태인지 보여줘요. 빨간불이면 위의 로그인/연동을 먼저 확인해보세요.</span></span>
+      </h3>
+      <div class="status-row"><span class="status-dot" id="botStatusDot"></span><span id="botStatusText" class="muted">확인 중...</span></div>
+      <div style="display:flex; gap:8px;">
+        <button class="ghost" onclick="restartBotSession()">다시 연결 시도</button>
+        <button class="ghost" onclick="openLogViewer()">로그 확인</button>
+      </div>
+      <div class="hint">"로그 확인"을 누르면 새 창이 뜨고, 그 시점부터의 채팅/연결 로그가 실시간으로 쌓여요. 채팅이 연결됐는데도 반응이 없으면 다른 사람 채팅이 [chat]으로 찍히는지 확인해보세요.</div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const state = { commands: [], system: [], banwords: [] };
+let tokenVisible = false;
+let tokenValues = null;
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => ({ ok: false, error: 'invalid response' }));
+  if (!json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+  return json.data;
+}
+
+function permBadge(p) {
+  const label = { everyone: '시청자', manager: '매니저', streamer: '스트리머' }[p] || p;
+  return `<span class="badge ${p}">${label}</span>`;
+}
+
+// ---- 네비게이션 ----
+const PAGES = ['commands', 'system', 'banwords', 'account'];
+
+let pagePollTimer = null;
+
+function showPage(pageName) {
+  document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
+  const navBtn = document.querySelector(`.nav-item[data-page="${pageName}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  PAGES.forEach((p) => {
+    document.getElementById('page-' + p).style.display = p === pageName ? '' : 'none';
+  });
+
+  if (pagePollTimer) { clearInterval(pagePollTimer); pagePollTimer = null; }
+
+  if (pageName === 'account') {
+    loadAccountPage(true);
+    // 인가 페이지에서 허용을 누르고 돌아와도 이 탭이 저절로 바뀌지는 않으니, 계정 연동
+    // 탭을 보고 있는 동안엔 몇 초마다 상태를 다시 확인해서 초록불이 자동으로 켜지게 함.
+    // (입력칸 값은 덮어쓰지 않도록 populateFields는 false로 둠 — 위 loadAccountPage 설명 참고)
+    pagePollTimer = setInterval(() => loadAccountPage(false), 3000);
+  } else if (pageName === 'commands') {
+    loadCommands();
+    // 채팅에서 !추가/!수정/!제거로 명령어가 바뀔 수 있어서, 이 탭을 보고 있는 동안엔
+    // 몇 초마다 목록을 다시 불러와서 즉시 반영되게 함 (안 그러면 새로고침 전까진
+    // "이미 있는 명령어"라는 오류만 보고 실제로는 안 보이는 것처럼 느껴짐)
+    pagePollTimer = setInterval(loadCommands, 3000);
+  }
+}
+
+async function openLogViewer() {
+  try {
+    await api('POST', '/api/bot/open-log-window', {});
+  } catch (err) {
+    // Electron 앱이 아니라 CLI 등으로 실행 중일 때는 브라우저 새 탭으로 대체
+    window.open('/log-viewer.html', 'saebyeokBotLog', 'width=760,height=520,menubar=no,toolbar=no');
+  }
+}
+
+document.querySelectorAll('.nav-item').forEach((btn) => {
+  btn.addEventListener('click', () => showPage(btn.dataset.page));
+});
+
+document.getElementById('channelHeader').addEventListener('click', () => showPage('account'));
+
+// ---- 유저 명령어 ----
+async function loadCommands() {
+  state.commands = await api('GET', '/api/commands');
+  const body = document.getElementById('commandsBody');
+  if (!state.commands.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty">아직 등록된 명령어가 없어요. 채팅에서 !추가로 만들거나 위 버튼을 눌러보세요.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.commands.map((c) => `
+    <tr>
+      <td><strong>!${c.name}</strong></td>
+      <td class="muted">${(c.responses || []).join(' || ')}</td>
+      <td>${permBadge(c.permission)}</td>
+      <td>${c.cooldownSec}초 / 유저 ${c.userCooldownSec}초</td>
+      <td>${c.uses || 0}</td>
+      <td>
+        <label class="switch">
+          <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleCommand('${c.name}', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </td>
+      <td>
+        <div style="display:flex; gap:6px;">
+          <button class="ghost" onclick='openCommandModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>편집</button>
+          <button class="danger" onclick="deleteCommand('${c.name}')">삭제</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function toggleCommand(name, enabled) {
+  try {
+    await api('PATCH', `/api/commands/${encodeURIComponent(name)}/enabled`, { enabled });
+    toast(enabled ? '명령어를 켰어요.' : '명령어를 껐어요.');
+  } catch (err) { toast('오류: ' + err.message); loadCommands(); }
+}
+
+async function deleteCommand(name) {
+  if (!confirm(`'!${name}' 명령어를 삭제할까요?`)) return;
+  try {
+    await api('DELETE', `/api/commands/${encodeURIComponent(name)}`);
+    toast('삭제했어요.');
+    loadCommands();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+function openCommandModal(existing) {
+  const isEdit = !!existing;
+  const responseText = isEdit ? (existing.responses || []).join(' || ') : '';
+  const permission = isEdit ? existing.permission : 'everyone';
+  const cooldownSec = isEdit ? existing.cooldownSec : 3;
+  const userCooldownSec = isEdit ? existing.userCooldownSec : 3;
+
+  buildModal(`
+    <h2>${isEdit ? `명령어 편집 (!${existing.name})` : '명령어 추가'}</h2>
+    <div class="field">
+      <label>명령어 이름 (! 없이)</label>
+      <input type="text" id="cmdName" placeholder="예: 인사" value="${isEdit ? existing.name : ''}" ${isEdit ? 'disabled' : ''} />
+    </div>
+    <div class="field"><label>응답 메시지 (||로 구분하면 랜덤 응답, $nick으로 닉네임 치환)</label><textarea id="cmdResponse" placeholder="안녕하세요! 반갑습니다 :>">${responseText}</textarea></div>
+    <div class="field-row">
+      <div class="field grow"><label>필요 권한</label>
+        <select id="cmdPermission">
+          <option value="everyone" ${permission === 'everyone' ? 'selected' : ''}>시청자(누구나)</option>
+          <option value="manager" ${permission === 'manager' ? 'selected' : ''}>매니저 이상</option>
+          <option value="streamer" ${permission === 'streamer' ? 'selected' : ''}>스트리머만</option>
+        </select>
+      </div>
+      <div class="field narrow"><label>전체(초)</label><input type="text" id="cmdCooldown" value="${cooldownSec}" /></div>
+      <div class="field narrow"><label>유저(초)</label><input type="text" id="cmdUserCooldown" value="${userCooldownSec}" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">취소</button>
+      <button class="confirm" onclick="submitCommand(${isEdit ? `'${existing.name}'` : 'null'})">${isEdit ? '저장' : '추가'}</button>
+    </div>
+  `);
+}
+
+async function submitCommand(editingName) {
+  const name = document.getElementById('cmdName').value.trim();
+  const response = document.getElementById('cmdResponse').value.trim();
+  const permission = document.getElementById('cmdPermission').value;
+  const cooldownSec = document.getElementById('cmdCooldown').value;
+  const userCooldownSec = document.getElementById('cmdUserCooldown').value;
+  try {
+    if (editingName) {
+      await api('PUT', `/api/commands/${encodeURIComponent(editingName)}`, {
+        response, permission, cooldownSec, userCooldownSec,
+      });
+      toast('명령어를 저장했어요.');
+    } else {
+      await api('POST', '/api/commands', { name, response, permission, cooldownSec, userCooldownSec });
+      toast('명령어를 추가했어요.');
+    }
+    closeModal();
+    loadCommands();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 시스템 명령어 ----
+async function loadSystemCommands() {
+  state.system = await api('GET', '/api/system-commands');
+  document.getElementById('systemBody').innerHTML = state.system.map((c) => `
+    <tr>
+      <td><strong>${c.name}</strong></td>
+      <td class="muted">${c.description}</td>
+      <td>
+        <select class="inline-select ${c.permission}" onchange="updateSystemPermission('${c.key}', this.value, this)">
+          <option value="everyone" ${c.permission === 'everyone' ? 'selected' : ''}>시청자(누구나)</option>
+          <option value="manager" ${c.permission === 'manager' ? 'selected' : ''}>매니저 이상</option>
+          <option value="streamer" ${c.permission === 'streamer' ? 'selected' : ''}>스트리머만</option>
+        </select>
+      </td>
+      <td>
+        <input
+          class="cooldown-input" type="number" min="0" step="1"
+          value="${c.cooldownSec}"
+          onblur="updateSystemCooldown('${c.key}', this.value)"
+          onkeydown="if (event.key === 'Enter') this.blur()"
+        />초
+      </td>
+      <td>
+        <label class="switch">
+          <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleSystemCommand('${c.key}', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function toggleSystemCommand(key, enabled) {
+  try {
+    await api('PATCH', `/api/system-commands/${encodeURIComponent(key)}/enabled`, { enabled });
+    toast(enabled ? '명령어를 켰어요.' : '명령어를 껐어요.');
+  } catch (err) { toast('오류: ' + err.message); loadSystemCommands(); }
+}
+
+async function updateSystemPermission(key, permission, selectEl) {
+  try {
+    await api('PATCH', `/api/system-commands/${encodeURIComponent(key)}/permission`, { permission });
+    if (selectEl) selectEl.className = 'inline-select ' + permission;
+    toast('필요 권한을 변경했어요.');
+  } catch (err) { toast('오류: ' + err.message); loadSystemCommands(); }
+}
+
+async function updateSystemCooldown(key, cooldownSec) {
+  const before = state.system.find((c) => c.key === key)?.cooldownSec;
+  if (String(before) === String(cooldownSec)) return; // 안 바뀌었으면 요청 안 보냄
+  try {
+    await api('PATCH', `/api/system-commands/${encodeURIComponent(key)}/cooldown`, { cooldownSec });
+    toast('쿨타임을 변경했어요.');
+    loadSystemCommands();
+  } catch (err) { toast('오류: ' + err.message); loadSystemCommands(); }
+}
+
+// ---- 금칙어 ----
+async function loadBanwords() {
+  state.banwords = await api('GET', '/api/banwords');
+  const body = document.getElementById('banwordsBody');
+  if (!state.banwords.length) {
+    body.innerHTML = `<tr><td colspan="4" class="empty">등록된 금칙어가 없어요.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.banwords.map((w) => `
+    <tr>
+      <td><strong>${w.word}</strong></td>
+      <td>${w.action === 'timeout' ? '임시 제한' : '메시지 블라인드(삭제)'}</td>
+      <td>
+        <label class="switch">
+          <input type="checkbox" ${w.enabled ? 'checked' : ''} onchange="toggleBanword('${w.id}', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </td>
+      <td><button class="danger" onclick="deleteBanword('${w.id}')">삭제</button></td>
+    </tr>
+  `).join('');
+}
+
+async function toggleBanword(id, enabled) {
+  try {
+    await api('PATCH', `/api/banwords/${id}/enabled`, { enabled });
+  } catch (err) { toast('오류: ' + err.message); loadBanwords(); }
+}
+
+async function deleteBanword(id) {
+  if (!confirm('이 금칙어를 삭제할까요?')) return;
+  try {
+    await api('DELETE', `/api/banwords/${id}`);
+    toast('삭제했어요.');
+    loadBanwords();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+function openBanwordModal() {
+  buildModal(`
+    <h2>금칙어 추가</h2>
+    <div class="field"><label>금칙어</label><input type="text" id="banWord" placeholder="금칙어를 입력해주세요." /></div>
+    <div class="field"><label>제재 타입</label>
+      <select id="banAction">
+        <option value="blind">메시지 블라인드(삭제)</option>
+        <option value="timeout">임시 제한 (활동제한 쓰기 권한 필요)</option>
+      </select>
+    </div>
+    <div class="hint">영구 차단(벤)은 치지직 공식 Open API에 해당 기능이 없어 지원하지 않아요. 임시 제한은 봇 계정 토큰에 '활동제한 쓰기' 권한이 있어야 동작해요.</div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">취소</button>
+      <button class="confirm" onclick="submitBanword()">추가</button>
+    </div>
+  `);
+}
+
+async function submitBanword() {
+  const word = document.getElementById('banWord').value.trim();
+  const action = document.getElementById('banAction').value;
+  try {
+    await api('POST', '/api/banwords', { word, action });
+    toast('금칙어를 추가했어요.');
+    closeModal();
+    loadBanwords();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 모달 공통 ----
+function buildModal(innerHtml) {
+  closeModal();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'modalBackdrop';
+  backdrop.innerHTML = `<div class="modal">${innerHtml}</div>`;
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+  document.body.appendChild(backdrop);
+  return backdrop;
+}
+function closeModal() {
+  const el = document.getElementById('modalBackdrop');
+  if (el) el.remove();
+}
+
+// ---- 계정 연동 ----
+function setStatusDot(id, level) {
+  const el = document.getElementById(id);
+  el.className = 'status-dot' + (level ? ' ' + level : '');
+}
+
+// populateFields가 true일 때만 Client ID/Secret/채널 ID 입력칸 값을 서버 값으로 덮어써요.
+// 이 탭을 보고 있는 동안 3초마다 자동으로 다시 불러오는데(계정 인가 상태를 실시간으로
+// 보여주기 위해서), 그때마다 이 입력칸까지 덮어쓰면 사용자가 막 입력하던 값이 저장하기도
+// 전에 계속 지워지는 문제가 있었어요. 그래서 탭을 처음 열 때/저장한 직후에만 채워넣고,
+// 그 사이 자동 새로고침에서는 입력칸은 건드리지 않고 인가 상태만 갱신해요.
+async function loadAccountPage(populateFields) {
+  try {
+    const s = await api('GET', '/api/auth/status');
+
+    if (populateFields) {
+      document.getElementById('authClientId').value = s.clientId || '';
+      document.getElementById('authClientSecret').value = '';
+      document.getElementById('authChannelId').value = s.channelId || '';
+      document.getElementById('authRedirectUri').value = s.redirectUri || '';
+    }
+    document.getElementById('authClientSecret').placeholder = s.hasClientSecret ? '설정되어 있음 (그대로 두면 유지돼요)' : '아직 설정 안 됨';
+
+    renderBotStatus(s.bot);
+  } catch (err) {
+    toast('오류: ' + err.message);
+  }
+
+  try {
+    const o = await api('GET', '/api/oauth/status');
+    renderOAuthStatus(o);
+  } catch (err) {
+    toast('오류: ' + err.message);
+  }
+}
+
+function renderOAuthStatus(o) {
+  if (!o) return;
+  if (o.authorized) {
+    setStatusDot('oauthStatusDot', 'ok');
+    document.getElementById('oauthStatusText').textContent = '인가되어 있어요.' + (o.obtainedAt ? ' (마지막 인가: ' + new Date(o.obtainedAt).toLocaleString('ko-KR') + ')' : '');
+  } else {
+    setStatusDot('oauthStatusDot', 'error');
+    document.getElementById('oauthStatusText').textContent = '아직 인가 전이에요. "치지직 인가 페이지 열기"를 눌러주세요.';
+  }
+
+  // 3초마다 자동으로 다시 불러오는 중이라, 이미 "값 보기"로 펼쳐놓은 상태라면 매번
+  // 도로 가려버리지 않도록 값이 펼쳐져 있을 땐 건드리지 않음
+  const accessEl = document.getElementById('accessTokenValue');
+  const refreshEl = document.getElementById('refreshTokenValue');
+  const toggleBtn = document.getElementById('toggleTokenBtn');
+  if (accessEl && refreshEl && toggleBtn && !tokenVisible) {
+    toggleBtn.textContent = '값 보기';
+    if (o.authorized) {
+      accessEl.value = '•'.repeat(24);
+      refreshEl.value = '•'.repeat(24);
+      toggleBtn.disabled = false;
+    } else {
+      accessEl.value = '';
+      refreshEl.value = '';
+      toggleBtn.disabled = true;
+    }
+  }
+  const savedHint = document.getElementById('tokenSavedHint');
+  if (savedHint) {
+    savedHint.textContent = o.scope ? '허용된 권한: ' + o.scope : '';
+  }
+}
+
+async function toggleTokenVisibility() {
+  const accessEl = document.getElementById('accessTokenValue');
+  const refreshEl = document.getElementById('refreshTokenValue');
+  const toggleBtn = document.getElementById('toggleTokenBtn');
+
+  if (tokenVisible) {
+    tokenVisible = false;
+    accessEl.value = '•'.repeat(24);
+    refreshEl.value = '•'.repeat(24);
+    toggleBtn.textContent = '값 보기';
+    return;
+  }
+
+  try {
+    const t = await api('GET', '/api/oauth/tokens');
+    if (!t || !t.accessToken) { toast('아직 인가된 토큰이 없어요.'); return; }
+    tokenValues = t;
+    accessEl.value = t.accessToken;
+    refreshEl.value = t.refreshToken;
+    tokenVisible = true;
+    toggleBtn.textContent = '숨기기';
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+async function startOAuth() {
+  try {
+    document.getElementById('oauthMessage').textContent = '';
+    const result = await api('POST', '/api/oauth/open', {});
+    if (!result.opened) {
+      // Electron이 아닌 환경(CLI 모드)이면 새 탭으로라도 열어줌
+      window.open(result.url, '_blank');
+    }
+    toast('인가 페이지를 열었어요. 로그인 후 "허용"을 눌러주세요.');
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+async function clearOAuth() {
+  try {
+    await api('DELETE', '/api/oauth/credentials', {});
+    toast('인가를 해제했어요.');
+    loadAccountPage(false);
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+function renderBotStatus(bot) {
+  if (!bot) return;
+  if (bot.sessionConnected) {
+    setStatusDot('botStatusDot', 'ok');
+    document.getElementById('botStatusText').textContent = '채팅 세션에 연결되어 있어요.';
+  } else if (bot.authReady) {
+    setStatusDot('botStatusDot', 'pending');
+    document.getElementById('botStatusText').textContent = '인증은 됐지만 아직 채팅 세션에 연결되지 않았어요.' + (bot.lastError ? ' (' + bot.lastError + ')' : '');
+  } else {
+    setStatusDot('botStatusDot', 'error');
+    document.getElementById('botStatusText').textContent = bot.lastError ? '연결 안 됨: ' + bot.lastError : '아직 치지직 인가가 필요해요.';
+  }
+}
+
+async function saveAuthConfig() {
+  const clientId = document.getElementById('authClientId').value.trim();
+  const clientSecret = document.getElementById('authClientSecret').value.trim();
+  const channelId = document.getElementById('authChannelId').value.trim();
+  const redirectUri = document.getElementById('authRedirectUri').value.trim();
+  try {
+    const result = await api('POST', '/api/auth/config', { clientId, clientSecret, channelId, redirectUri });
+    toast(result && result.redirectUriChanged ? '저장했어요. Redirect URI를 바꿨으니 앱을 재시작해야 적용돼요.' : '저장했어요.');
+    loadAccountPage(true);
+    loadStatus();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+async function restartBotSession() {
+  try {
+    document.getElementById('botStatusText').textContent = '연결 시도 중...';
+    setStatusDot('botStatusDot', 'pending');
+    const result = await api('POST', '/api/bot/restart-session', {});
+    renderBotStatus(result.bot);
+    toast(result.ok ? '연결됐어요.' : '연결 실패: ' + (result.error || ''));
+    loadStatus();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 초기 로드 ----
+async function loadStatus() {
+  try {
+    const s = await api('GET', '/api/status');
+    const label = document.getElementById('channelLabel');
+    const avatar = document.getElementById('channelAvatar');
+    label.textContent = s.channelName || '채널 정보 불러오는 중...';
+    avatar.innerHTML = s.channelImageUrl ? `<img src="${s.channelImageUrl}" alt="" />` : '';
+    const versionLabel = document.getElementById('appVersionLabel');
+    if (versionLabel) versionLabel.textContent = s.appVersion ? `v${s.appVersion}` : '';
+  } catch (_e) {}
+}
+
+loadStatus();
+loadCommands();
+loadSystemCommands();
+loadBanwords();
+</script>
+</body>
+</html>
