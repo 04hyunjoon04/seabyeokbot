@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "start:cli": "node index.js",
-    "dist": "electron-builder --win",
+    "dist": "electron-builder --win --publish never",
     "service:install": "node scripts/install-service.js",
     "service:uninstall": "node scripts/uninstall-service.js"
   },
