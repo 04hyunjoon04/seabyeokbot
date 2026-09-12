@@ -1,0 +1,154 @@
+"use strict";
+
+// 커스텀 명령어를 data/commands.json 에 저장/조회/수정하는 아주 단순한 파일 기반 저장소.
+// (나중에 시청자 수가 많아지면 SQLite 등으로 교체 가능하도록 함수 인터페이스만 분리해둠)
+
+const fs = require("fs");
+const config = require("./config");
+
+let commands = {};
+
+function load() {
+  try {
+    const text = fs.readFileSync(config.commandsFilePath, "utf8");
+    commands = JSON.parse(text);
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      commands = {};
+    } else {
+      // 파일은 있는데 내용이 깨져서 못 읽는 경우. 빈 목록으로 시작하면 다음 저장 때
+      // 기존 커스텀 명령어가 통째로 사라지니, 원본을 백업해두고 빈 값으로 시작함.
+      console.error("[commandStore] commands.json 파싱 실패, 빈 목록으로 시작합니다:", err.message);
+      try {
+        fs.copyFileSync(config.commandsFilePath, `${config.commandsFilePath}.corrupted-${Date.now()}.bak`);
+      } catch (backupErr) {
+        console.error("[commandStore] 손상된 파일 백업 실패:", backupErr.message);
+      }
+      commands = {};
+    }
+  }
+}
+
+function save() {
+  fs.writeFileSync(config.commandsFilePath, JSON.stringify(commands, null, 2), "utf8");
+}
+
+function normalizeName(name) {
+  return String(name || "").trim();
+}
+
+function get(name) {
+  return commands[normalizeName(name)];
+}
+
+function has(name) {
+  return Object.prototype.hasOwnProperty.call(commands, normalizeName(name));
+}
+
+function all() {
+  return commands;
+}
+
+function add(name, responseText, opts = {}) {
+  const key = normalizeName(name);
+  commands[key] = {
+    responses: responseText.split("||").map((s) => s.trim()),
+    permission: opts.permission || "everyone", // 기본값은 누구나 사용 가능(명령어를 새로 만드는 것 자체는 매니저 이상만 가능)
+    cooldownSec: opts.cooldownSec ?? 3,
+    userCooldownSec: opts.userCooldownSec ?? 3,
+    enabled: true,
+    listed: opts.listed ?? true,
+    description: opts.description || "",
+    uses: 0,
+  };
+  save();
+  return commands[key];
+}
+
+function update(name, responseText) {
+  const key = normalizeName(name);
+  if (!has(key)) return null;
+  commands[key].responses = responseText.split("||").map((s) => s.trim());
+  save();
+  return commands[key];
+}
+
+function remove(name) {
+  const key = normalizeName(name);
+  if (!has(key)) return false;
+  delete commands[key];
+  save();
+  return true;
+}
+
+function setEnabled(name, enabled) {
+  const key = normalizeName(name);
+  if (!has(key)) return null;
+  commands[key].enabled = enabled;
+  save();
+  return commands[key];
+}
+
+const META_FIELDS = ["permission", "cooldownSec", "userCooldownSec", "listed", "description"];
+
+// 웹 대시보드에서 응답 문구 외의 설정(권한/쿨타임/목록 노출 여부 등)만 바꿀 때 사용
+function setMeta(name, patch = {}) {
+  const key = normalizeName(name);
+  if (!has(key)) return null;
+  for (const field of META_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(patch, field)) {
+      commands[key][field] = patch[field];
+    }
+  }
+  save();
+  return commands[key];
+}
+
+// !명령어가 여러 개 연달아 트리거되면(예: 인기 명령어를 여러 명이 동시에 침) 매번 파일
+// 전체를 동기적으로 다시 써서 저장하게 되는데, 이건 명령어 실행 경로에서 제일 자주 도는
+// 부분이라 그때마다 디스크에 쓰면 응답이 미세하게 늦어질 수 있어요. 그래서 사용 횟수(uses)
+// 증가만은 메모리에서 바로 반영하고, 실제 파일 저장은 짧게 모아뒀다가(디바운스) 한 번에
+// 처리해요. 응답 메시지 자체는 이 저장을 기다리지 않고 바로 나가니 채팅 반응 속도엔 영향
+// 없고, 프로그램이 갑자기 꺼져도 최근 몇 초치 사용 횟수만 유실될 뿐 명령어 자체나 다른
+// 데이터는 전혀 영향받지 않아요.
+const USES_FLUSH_DELAY_MS = 2000;
+let usesFlushTimer = null;
+
+function incrementUses(name) {
+  const key = normalizeName(name);
+  if (!has(key)) return;
+  commands[key].uses = (commands[key].uses || 0) + 1;
+  if (!usesFlushTimer) {
+    usesFlushTimer = setTimeout(() => {
+      usesFlushTimer = null;
+      save();
+    }, USES_FLUSH_DELAY_MS);
+    if (usesFlushTimer.unref) usesFlushTimer.unref(); // 이 타이머 때문에 프로세스 종료가 막히지 않도록
+  }
+}
+
+// 프로그램을 종료하기 직전에 불러서, 위 디바운스 때문에 아직 디스크에 안 쓰인 최근 사용
+// 횟수가 있으면 그대로 유실되지 않게 즉시 저장함.
+function flush() {
+  if (usesFlushTimer) {
+    clearTimeout(usesFlushTimer);
+    usesFlushTimer = null;
+    save();
+  }
+}
+
+load();
+
+module.exports = {
+  load,
+  get,
+  has,
+  all,
+  add,
+  update,
+  remove,
+  setEnabled,
+  setMeta,
+  incrementUses,
+  flush,
+};
