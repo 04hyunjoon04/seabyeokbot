@@ -1,6 +1,6 @@
 "use strict";
 
-// cooldown / permissions / template / botLog / atomicWriteJson 유틸리티 모음. utils.cooldown 등으로 사용.
+// cooldown / permissions / template / botLog / atomicWriteJson / kst 유틸리티 모음. utils.cooldown 등으로 사용.
 
 const fs = require("fs");
 
@@ -10,6 +10,18 @@ function atomicWriteJson(filePath, data) {
   fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
   fs.renameSync(tmpPath, filePath);
 }
+
+// ---- kst: 한국 표준시(Asia/Seoul) 기준 날짜 문자열 계산. 출석체크 등 날짜 단위 로직에 사용 ----
+function dateString(ts = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ts));
+}
+
+const kst = { dateString };
 
 // ---- cooldown: 명령어별 전체 쿨타임 + 유저별 쿨타임을 메모리에서 관리 (프로세스 재시작 시 초기화) ----
 const lastGlobalUse = new Map(); // commandName -> timestamp(ms)
@@ -115,4 +127,4 @@ function clearLogs() {
 
 const botLog = { log: logInfo, warn: logWarn, error: logError, getAll: getAllLogs, clear: clearLogs };
 
-module.exports = { cooldown, permissions, template, botLog, atomicWriteJson };
+module.exports = { cooldown, permissions, template, botLog, atomicWriteJson, kst };

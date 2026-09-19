@@ -10,6 +10,7 @@ const { startWebServer } = require("./src/web/server");
 const botControl = require("./src/botControl");
 const commandStore = require("./src/commandStore");
 const { botLog } = require("./src/utils");
+const eventBus = require("./src/eventBus");
 
 let started = false;
 let webServerInstance = null;
@@ -44,6 +45,7 @@ function registerHandlersOnce() {
 
   official.on("statusChange", ({ connected }) => {
     botStatus.sessionConnected = !!connected;
+    eventBus.emit("bot-status");
   });
 }
 
@@ -79,6 +81,7 @@ async function startOrRestartSession() {
     return { ok: false, error: err.message };
   } finally {
     sessionStarting = false;
+    eventBus.emit("bot-status");
   }
 }
 

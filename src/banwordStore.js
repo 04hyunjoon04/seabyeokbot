@@ -6,6 +6,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const config = require("./config");
 const { atomicWriteJson } = require("./utils");
+const eventBus = require("./eventBus");
 
 let words = []; // [{ id, word, action, enabled, _wordLower }]
 
@@ -36,6 +37,7 @@ function load() {
 function save() {
   // _wordLower는 메모리 캐시용이라 파일에는 저장하지 않음
   atomicWriteJson(config.banwordsFilePath, words.map(stripInternal));
+  eventBus.emit("banwords");
 }
 
 function stripInternal(entry) {

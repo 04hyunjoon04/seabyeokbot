@@ -83,6 +83,7 @@ const config = {
   banwordsFilePath: path.join(dataDir, "banwords.json"),
   systemCommandOverridesFilePath: path.join(dataDir, "systemCommandOverrides.json"),
   officialAuthFilePath: path.join(dataDir, "officialAuth.json"),
+  attendanceFilePath: path.join(dataDir, "attendance.json"),
 };
 
 module.exports = config;

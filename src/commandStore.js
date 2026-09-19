@@ -5,6 +5,7 @@
 const fs = require("fs");
 const config = require("./config");
 const { atomicWriteJson } = require("./utils");
+const eventBus = require("./eventBus");
 
 let commands = {};
 
@@ -30,6 +31,7 @@ function load() {
 
 function save() {
   atomicWriteJson(config.commandsFilePath, commands);
+  eventBus.emit("commands");
 }
 
 function normalizeName(name) {

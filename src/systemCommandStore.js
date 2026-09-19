@@ -6,6 +6,7 @@
 const fs = require("fs");
 const config = require("./config");
 const { atomicWriteJson } = require("./utils");
+const eventBus = require("./eventBus");
 
 const VALID_PERMISSIONS = new Set(["everyone", "manager", "streamer"]);
 
@@ -37,6 +38,7 @@ function load() {
 
 function save() {
   atomicWriteJson(config.systemCommandOverridesFilePath, overrides);
+  eventBus.emit("system-commands");
 }
 
 function getPermission(key, defaultPermission) {

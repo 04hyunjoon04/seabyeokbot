@@ -8,6 +8,7 @@ const path = require("path");
 const crypto = require("crypto");
 const config = require("../config");
 const { atomicWriteJson } = require("../utils");
+const eventBus = require("../eventBus");
 
 let cachedTokens = null; // { accessToken, refreshToken, tokenType, scope, obtainedAt, expiresIn }
 let pendingState = null; // 인가 요청 시 발급한 state (CSRF 방지, 콜백에서 검증)
@@ -35,6 +36,7 @@ function save(tokens) {
   cachedTokens = tokens;
   fs.mkdirSync(path.dirname(config.officialAuthFilePath), { recursive: true });
   atomicWriteJson(config.officialAuthFilePath, tokens);
+  eventBus.emit("oauth");
 }
 
 function clear() {
@@ -44,6 +46,7 @@ function clear() {
   } catch (err) {
     // 이미 없으면 무시
   }
+  eventBus.emit("oauth");
 }
 
 function getTokens() {

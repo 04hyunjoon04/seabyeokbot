@@ -27,6 +27,13 @@ const DEFINITIONS = [
     defaultCooldownSec: 0,
   },
   {
+    key: "출첵",
+    label: (p) => `${p}출첵`,
+    description: "출석체크, 연속/총 출석 기록",
+    defaultPermission: "everyone",
+    defaultCooldownSec: 3,
+  },
+  {
     key: "추가",
     label: (p) => `${p}추가 (또는 ${p}등록)`,
     description: "새 커스텀 명령어 추가",

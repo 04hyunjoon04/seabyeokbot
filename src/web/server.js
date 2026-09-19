@@ -8,14 +8,28 @@ const api = require("../api");
 const { updateEnvFile } = require("../envStore");
 const botControl = require("../botControl");
 const oauthClient = require("../official/oauthClient");
-const { botLog } = require("../utils");
+const { botLog, kst } = require("../utils");
 const commandStore = require("../commandStore");
 const banwordStore = require("../banwordStore");
+const attendanceStore = require("../attendanceStore");
 const systemCommandStore = require("../systemCommandStore");
 const { getSystemCommands } = require("./systemCommands");
 const { RESERVED_NAMES } = require("../commands");
+const eventBus = require("../eventBus");
+
+// 관리 페이지로 실시간 변경 알림을 보낼 때 쓰는 이벤트 종류
+const SSE_EVENTS = ["commands", "system-commands", "banwords", "attendance", "bot-status", "oauth"];
+const SSE_HEARTBEAT_MS = 25_000;
 
 const DEFAULT_COOLDOWN_SEC = 3;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// 출석 수정 API에 들어온 날짜 문자열 검증. 형식이 틀리거나 미래 날짜면 null 반환.
+function validateAttendanceDate(value) {
+  if (typeof value !== "string" || !DATE_RE.test(value)) return null;
+  if (value > kst.dateString()) return null;
+  return value;
+}
 
 // 쿨타임 입력값이 숫자가 아니거나 음수면 기본값으로 대체
 function sanitizeCooldown(value, fallback = DEFAULT_COOLDOWN_SEC) {
@@ -117,6 +131,31 @@ function createApp() {
       });
     })
   );
+
+  // 데이터 변경을 실시간으로 밀어주는 스트림. 클라이언트는 이 이벤트를 받으면 해당 목록만 다시 조회.
+  app.get("/api/events", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write("\n");
+
+    const listeners = SSE_EVENTS.map((type) => {
+      const handler = () => res.write(`data: ${JSON.stringify({ type })}\n\n`);
+      eventBus.on(type, handler);
+      return [type, handler];
+    });
+
+    // 프록시/브라우저의 유휴 연결 종료를 막기 위한 주기적 핑
+    const heartbeat = setInterval(() => res.write(": ping\n\n"), SSE_HEARTBEAT_MS);
+    if (heartbeat.unref) heartbeat.unref();
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      for (const [type, handler] of listeners) eventBus.off(type, handler);
+    });
+  });
 
   // ---- 시스템 명령어 (로직은 고정, 권한/쿨타임만 조정 가능) ----
   app.get(
@@ -262,6 +301,56 @@ function createApp() {
       const removed = banwordStore.remove(req.params.id);
       if (!removed) return fail(res, 404, "해당 금칙어를 찾을 수 없어요.");
       ok(res, { id: req.params.id });
+    })
+  );
+
+  // ---- 출석체크 ----
+  app.get(
+    "/api/attendance",
+    wrap((req, res) => {
+      ok(res, attendanceStore.all());
+    })
+  );
+
+  app.get(
+    "/api/attendance/:channelId",
+    wrap((req, res) => {
+      const record = attendanceStore.get(req.params.channelId);
+      if (!record) return fail(res, 404, "해당 출석 기록을 찾을 수 없어요.");
+      ok(res, record);
+    })
+  );
+
+  app.delete(
+    "/api/attendance/:channelId",
+    wrap((req, res) => {
+      const removed = attendanceStore.remove(req.params.channelId);
+      if (!removed) return fail(res, 404, "해당 출석 기록을 찾을 수 없어요.");
+      ok(res, { channelId: req.params.channelId });
+    })
+  );
+
+  // 이미 출첵 기록이 있는 유저 전체에 한해, 특정 날짜를 일괄 출석/결석 처리
+  app.post(
+    "/api/attendance/bulk",
+    wrap((req, res) => {
+      const { date, attended } = req.body || {};
+      const validDate = validateAttendanceDate(date);
+      if (!validDate) return fail(res, 400, "날짜 형식이 올바르지 않거나 미래 날짜예요.");
+      ok(res, attendanceStore.bulkSetAttendance(validDate, !!attended));
+    })
+  );
+
+  // 특정 유저의 특정 날짜 출석 여부를 직접 켜고 끔
+  app.post(
+    "/api/attendance/:channelId/dates",
+    wrap((req, res) => {
+      const { date, attended } = req.body || {};
+      const validDate = validateAttendanceDate(date);
+      if (!validDate) return fail(res, 400, "날짜 형식이 올바르지 않거나 미래 날짜예요.");
+      const updated = attendanceStore.setDateAttendance(req.params.channelId, validDate, !!attended);
+      if (!updated) return fail(res, 404, "해당 출석 기록을 찾을 수 없어요.");
+      ok(res, updated);
     })
   );
 

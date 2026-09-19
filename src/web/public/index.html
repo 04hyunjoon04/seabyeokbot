@@ -189,6 +189,30 @@
     opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100;
   }
   .toast.show { opacity: 1; }
+
+  .page-title-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+  .page-title-controls { display: flex; align-items: center; gap: 16px; }
+  .toggle-label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .search-box { position: relative; }
+  .search-box svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; }
+  .search-box svg circle, .search-box svg line { stroke: var(--muted); }
+  .search-box input {
+    padding: 7px 10px 7px 30px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; font-family: inherit; width: 200px;
+  }
+
+  .calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .calendar-header button { background: none; border: none; cursor: pointer; font-size: 15px; color: var(--text); padding: 4px 10px; }
+  .calendar-header button:hover { color: var(--accent); }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .calendar-dow { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0; }
+  .calendar-day { text-align: center; font-size: 12px; padding: 7px 0; border-radius: 6px; cursor: pointer; background: #f7f7fb; }
+  .calendar-day.empty { visibility: hidden; cursor: default; }
+  .calendar-day:hover { background: #e9e9f5; }
+  .calendar-day.checked { background: var(--accent); color: white; font-weight: 600; }
+  .calendar-day.selected { outline: 2px solid var(--accent-dark); outline-offset: 1px; }
+  .calendar-day.future { color: #c7c9d2; cursor: not-allowed; background: #fafafd; }
+  .edit-summary { display: flex; gap: 16px; margin: 10px 0 14px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -201,6 +225,7 @@
   <button class="nav-item active" data-page="commands">유저 명령어</button>
   <button class="nav-item" data-page="system">시스템 명령어</button>
   <button class="nav-item" data-page="banwords">금칙어</button>
+  <button class="nav-item" data-page="attendance">출석체크</button>
 </aside>
 
 <main>
@@ -233,6 +258,32 @@
     <table>
       <thead><tr><th>금칙어</th><th>제재 방식</th><th>활성</th><th></th></tr></thead>
       <tbody id="banwordsBody"></tbody>
+    </table>
+  </section>
+
+  <!-- 출석체크 -->
+  <section id="page-attendance" style="display:none">
+    <div class="page-title-row">
+      <div class="page-title">출석체크</div>
+      <div class="page-title-controls">
+        <label class="toggle-label">
+          <label class="switch">
+            <input type="checkbox" id="attendanceEnabledToggle" onchange="toggleAttendanceFeature(this.checked)">
+            <span class="slider"></span>
+          </label>
+          출첵 기능
+        </label>
+        <div class="search-box">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.2" stroke-width="1.4"/><line x1="10.8" y1="10.8" x2="14.5" y2="14.5" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="닉네임 또는 유저 식별코드 검색" oninput="onAttendanceSearchInput(this.value)" />
+        </div>
+        <button class="primary" onclick="openBulkAttendanceModal()">전체 수정</button>
+      </div>
+    </div>
+    <div class="page-sub"><code>!출첵</code>으로 출석한 시청자 기록이에요. 매일 자정(한국시간) 기준으로 새 출석일이 시작돼요. 기능을 꺼도 기록은 그대로 남아요.</div>
+    <table>
+      <thead><tr><th></th><th>닉네임</th><th>유저 식별코드</th><th>연속 출석</th><th>총 출석</th><th>최장 출석</th><th></th></tr></thead>
+      <tbody id="attendanceBody"></tbody>
     </table>
   </section>
 
@@ -300,7 +351,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const state = { commands: [], system: [], banwords: [] };
+const state = { commands: [], system: [], banwords: [], attendance: [] };
 let tokenVisible = false;
 let tokenValues = null;
 
@@ -338,9 +389,7 @@ function permBadge(p) {
 }
 
 // ---- 네비게이션 ----
-const PAGES = ['commands', 'system', 'banwords', 'account'];
-
-let pagePollTimer = null;
+const PAGES = ['commands', 'system', 'banwords', 'attendance', 'account'];
 
 function showPage(pageName) {
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
@@ -350,17 +399,34 @@ function showPage(pageName) {
     document.getElementById('page-' + p).style.display = p === pageName ? '' : 'none';
   });
 
-  if (pagePollTimer) { clearInterval(pagePollTimer); pagePollTimer = null; }
+  // 탭을 열 때 한 번 최신 데이터를 가져옴. 이후 변경 반영은 실시간 이벤트(SSE)가 처리.
+  if (pageName === 'account') loadAccountPage(true);
+  else if (pageName === 'commands') loadCommands();
+  else if (pageName === 'system') loadSystemCommands();
+  else if (pageName === 'banwords') loadBanwords();
+  else if (pageName === 'attendance') loadAttendance();
+}
 
-  if (pageName === 'account') {
-    loadAccountPage(true);
-    // 인가 상태 자동 갱신을 위해 3초마다 재확인, 입력값 보존을 위해 populateFields는 false
-    pagePollTimer = setInterval(() => loadAccountPage(false), 3000);
-  } else if (pageName === 'commands') {
-    loadCommands();
-    // 채팅 명령어 변경 반영을 위해 3초마다 목록 재조회
-    pagePollTimer = setInterval(loadCommands, 3000);
-  }
+// ---- 실시간 변경 알림 (SSE) ----
+// 서버가 데이터 변경을 감지하면 이벤트로 알려주는 연결. 항목별 처리 함수 매핑.
+const SSE_HANDLERS = {
+  'commands': () => loadCommands(),
+  'system-commands': () => loadSystemCommands(),
+  'banwords': () => loadBanwords(),
+  'attendance': () => loadAttendance(),
+  'bot-status': () => loadAccountPage(false),
+  'oauth': () => loadAccountPage(false),
+};
+
+function connectEventStream() {
+  const source = new EventSource('/api/events');
+  source.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (_err) { return; }
+    const handler = msg && SSE_HANDLERS[msg.type];
+    if (handler) handler();
+  };
+  // 브라우저가 연결 끊김을 자동으로 재시도하므로 별도 재연결 로직은 불필요
 }
 
 async function openLogViewer() {
@@ -605,6 +671,240 @@ async function submitBanword() {
   } catch (err) { toast('오류: ' + err.message); }
 }
 
+// ---- 출석체크 ----
+let attendanceSearchQuery = '';
+
+async function loadAttendance() {
+  state.attendance = await api('GET', '/api/attendance');
+  renderAttendanceTable();
+  loadAttendanceToggleState();
+}
+
+function renderAttendanceTable() {
+  const body = document.getElementById('attendanceBody');
+  const q = attendanceSearchQuery.trim().toLowerCase();
+  const rows = q
+    ? state.attendance.filter((a) =>
+        (a.nickname || '').toLowerCase().includes(q) || (a.channelId || '').toLowerCase().includes(q))
+    : state.attendance;
+
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty">${q ? '검색 결과가 없어요.' : '아직 출석한 시청자가 없어요.'}</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map((a) => `
+    <tr>
+      <td>${a.profileImageUrl ? `<div class="channel-avatar"><img src="${escapeHtml(a.profileImageUrl)}" alt="" /></div>` : ''}</td>
+      <td><strong>${escapeHtml(a.nickname)}</strong></td>
+      <td class="muted">${escapeHtml(a.channelId)}</td>
+      <td>${a.currentStreak}일</td>
+      <td>${a.totalCount}회</td>
+      <td>${a.longestStreak}일</td>
+      <td>
+        <div style="display:flex; gap:6px;">
+          <button class="ghost" onclick="openAttendanceEditModal('${encodeForHandler(a.channelId)}')">수정</button>
+          <button class="danger" onclick="deleteAttendance('${encodeForHandler(a.channelId)}')">삭제</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function onAttendanceSearchInput(value) {
+  attendanceSearchQuery = value;
+  renderAttendanceTable();
+}
+
+async function loadAttendanceToggleState() {
+  try {
+    const list = await api('GET', '/api/system-commands');
+    const entry = list.find((c) => c.key === '출첵');
+    const checkbox = document.getElementById('attendanceEnabledToggle');
+    if (checkbox && entry) checkbox.checked = entry.enabled;
+  } catch (_err) {}
+}
+
+async function toggleAttendanceFeature(enabled) {
+  try {
+    await api('PATCH', `/api/system-commands/${encodeURIComponent('출첵')}/enabled`, { enabled });
+    toast(enabled ? '출첵 기능을 켰어요.' : '출첵 기능을 껐어요. 기록은 그대로 유지돼요.');
+  } catch (err) { toast('오류: ' + err.message); loadAttendanceToggleState(); }
+}
+
+async function deleteAttendance(encodedChannelId) {
+  const channelId = decodeURIComponent(encodedChannelId);
+  if (!confirm('이 출석 기록을 삭제할까요?')) return;
+  try {
+    await api('DELETE', `/api/attendance/${encodeURIComponent(channelId)}`);
+    toast('삭제했어요.');
+    loadAttendance();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 출석체크 달력 공통 ----
+function pad2(n) { return String(n).padStart(2, '0'); }
+function ymd(year, month, day) { return `${year}-${pad2(month + 1)}-${pad2(day)}`; }
+
+function todayKstStr() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+// onDayClick: 클릭 시 호출할 전역 함수 이름. selectedDate: 선택 표시할 날짜(없으면 null)
+function buildCalendarGrid(year, month, markedSet, onDayClick, selectedDate) {
+  const first = new Date(year, month, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = todayKstStr();
+  const dow = ['일', '월', '화', '수', '목', '금', '토'];
+
+  let cells = dow.map((d) => `<div class="calendar-dow">${d}</div>`).join('');
+  for (let i = 0; i < startDow; i++) cells += `<div class="calendar-day empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = ymd(year, month, d);
+    const isFuture = dateStr > today;
+    const classes = ['calendar-day'];
+    if (markedSet.has(dateStr)) classes.push('checked');
+    if (dateStr === selectedDate) classes.push('selected');
+    if (isFuture) classes.push('future');
+    const click = isFuture ? '' : ` onclick="${onDayClick}('${dateStr}')"`;
+    cells += `<div class="${classes.join(' ')}"${click}>${d}</div>`;
+  }
+  return cells;
+}
+
+// ---- 출석체크 전체 수정 (일괄 출석) ----
+let bulkCalendarState = { year: 0, month: 0, selectedDate: null };
+
+function openBulkAttendanceModal() {
+  const now = new Date();
+  bulkCalendarState = { year: now.getFullYear(), month: now.getMonth(), selectedDate: null };
+  buildModal(renderBulkModalBody());
+}
+
+function renderBulkModalBody() {
+  const { year, month, selectedDate } = bulkCalendarState;
+  const grid = buildCalendarGrid(year, month, new Set(), 'selectBulkDate', selectedDate);
+  return `
+    <h2>전체 수정</h2>
+    <div class="hint">날짜를 선택하고 아래에서 출석/결석을 고르면, <code>!출첵</code>을 한 번이라도 사용한 시청자들의 기록에 그 날짜가 일괄로 반영돼요. 출첵을 한 번도 안 한 시청자는 새로 추가되지 않아요.</div>
+    <div class="calendar" style="margin-top:12px;">
+      <div class="calendar-header">
+        <button onclick="shiftBulkMonth(-1)">‹</button>
+        <strong>${year}년 ${month + 1}월</strong>
+        <button onclick="shiftBulkMonth(1)">›</button>
+      </div>
+      <div class="calendar-grid">${grid}</div>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="primary" style="flex:1;" onclick="submitBulkAttendance(true)">출석</button>
+      <button class="danger" style="flex:1;" onclick="submitBulkAttendance(false)">결석</button>
+    </div>
+    <div class="hint">결석 처리를 하면 그 날짜에 이미 출석돼있던 유저도 기록에서 빠지니 주의하세요.</div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">닫기</button>
+    </div>
+  `;
+}
+
+function refreshBulkModal() {
+  const modal = document.querySelector('#modalBackdrop .modal');
+  if (modal) modal.innerHTML = renderBulkModalBody();
+}
+
+function shiftBulkMonth(delta) {
+  let { year, month } = bulkCalendarState;
+  month += delta;
+  if (month < 0) { month = 11; year -= 1; }
+  if (month > 11) { month = 0; year += 1; }
+  bulkCalendarState.year = year;
+  bulkCalendarState.month = month;
+  refreshBulkModal();
+}
+
+function selectBulkDate(dateStr) {
+  bulkCalendarState.selectedDate = dateStr;
+  refreshBulkModal();
+}
+
+async function submitBulkAttendance(attended) {
+  const date = bulkCalendarState.selectedDate;
+  if (!date) { toast('날짜를 먼저 선택해주세요.'); return; }
+  const label = attended ? '출석' : '결석';
+  if (!confirm(`${date} 날짜를 일괄 ${label} 처리할까요? 이미 !출첵을 사용해본 시청자에게만 반영돼요.`)) return;
+  try {
+    const result = await api('POST', '/api/attendance/bulk', { date, attended });
+    toast(`${result.affected}명의 기록을 ${label} 처리했어요.`);
+    closeModal();
+    loadAttendance();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 출석체크 개인 수정 ----
+let editCalendarState = { channelId: null, year: 0, month: 0, record: null };
+
+async function openAttendanceEditModal(encodedChannelId) {
+  const channelId = decodeURIComponent(encodedChannelId);
+  try {
+    const record = await api('GET', `/api/attendance/${encodeURIComponent(channelId)}`);
+    const now = new Date();
+    editCalendarState = { channelId, year: now.getFullYear(), month: now.getMonth(), record };
+    buildModal(renderEditModalBody());
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+function renderEditModalBody() {
+  const { year, month, record } = editCalendarState;
+  const markedSet = new Set(record.checkDates || []);
+  const grid = buildCalendarGrid(year, month, markedSet, 'toggleEditDate', null);
+  return `
+    <h2>${escapeHtml(record.nickname)}님 출석 수정</h2>
+    <div class="muted" style="font-size:11px; margin:-12px 0 14px;">유저 식별코드: ${escapeHtml(record.channelId)}</div>
+    <div class="hint">날짜를 클릭하면 그 날의 출석 여부가 바로 켜지거나 꺼져요. 보라색 날짜가 출석 처리된 날이에요.</div>
+    <div class="edit-summary">
+      <span>연속 <strong>${record.currentStreak}</strong>일</span>
+      <span>총 <strong>${record.totalCount}</strong>회</span>
+      <span>최장 <strong>${record.longestStreak}</strong>일</span>
+    </div>
+    <div class="calendar">
+      <div class="calendar-header">
+        <button onclick="shiftEditMonth(-1)">‹</button>
+        <strong>${year}년 ${month + 1}월</strong>
+        <button onclick="shiftEditMonth(1)">›</button>
+      </div>
+      <div class="calendar-grid">${grid}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">닫기</button>
+    </div>
+  `;
+}
+
+function refreshEditModal() {
+  const modal = document.querySelector('#modalBackdrop .modal');
+  if (modal) modal.innerHTML = renderEditModalBody();
+}
+
+function shiftEditMonth(delta) {
+  let { year, month } = editCalendarState;
+  month += delta;
+  if (month < 0) { month = 11; year -= 1; }
+  if (month > 11) { month = 0; year += 1; }
+  editCalendarState.year = year;
+  editCalendarState.month = month;
+  refreshEditModal();
+}
+
+async function toggleEditDate(dateStr) {
+  const { channelId, record } = editCalendarState;
+  const attended = !record.checkDates.includes(dateStr);
+  try {
+    const updated = await api('POST', `/api/attendance/${encodeURIComponent(channelId)}/dates`, { date: dateStr, attended });
+    editCalendarState.record = updated;
+    refreshEditModal();
+    loadAttendance();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
 // ---- 모달 공통 ----
 function buildModal(innerHtml) {
   closeModal();
@@ -784,6 +1084,8 @@ loadStatus();
 loadCommands();
 loadSystemCommands();
 loadBanwords();
+loadAttendance();
+connectEventStream();
 </script>
 </body>
 </html>

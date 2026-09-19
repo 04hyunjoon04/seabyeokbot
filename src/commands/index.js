@@ -3,6 +3,7 @@
 const config = require("../config");
 const official = require("../official/chzzkOfficial");
 const store = require("../commandStore");
+const attendanceStore = require("../attendanceStore");
 const { cooldown, permissions, template: templateUtil } = require("../utils");
 const { hasPermission } = permissions;
 const { render, pickRandom } = templateUtil;
@@ -28,6 +29,7 @@ const RESERVED_NAMES = new Set([
   "명령어",
   "업타임",
   "핑",
+  "출첵",
 ]);
 
 function parseMessage(content) {
@@ -78,6 +80,16 @@ async function handleUptime() {
   }
 }
 
+async function isChannelLive() {
+  try {
+    const detail = await official.getLiveDetail(config.channelId);
+    return !!(detail && detail.status === "OPEN");
+  } catch (err) {
+    console.error("[commands] 방송 상태 확인 실패:", err.message);
+    return false;
+  }
+}
+
 // 시스템 명령어 전체 쿨타임 체크 (대시보드 설정값 반영)
 function checkSystemCooldown(key, userId) {
   const sec = getEffectiveCooldownSec(key);
@@ -87,7 +99,7 @@ function checkSystemCooldown(key, userId) {
   return false;
 }
 
-const SYSTEM_COMMAND_KEYS = ["핑", "업타임", "명령어", "추가", "수정", "제거"];
+const SYSTEM_COMMAND_KEYS = ["핑", "업타임", "명령어", "출첵", "추가", "수정", "제거"];
 
 function listCommands() {
   const names = Object.entries(store.all())
@@ -190,6 +202,25 @@ async function handleChatMessage(evt) {
     if (!hasPermission(userRoleCode, getEffectivePermission("업타임"))) return;
     if (checkSystemCooldown("업타임", userId)) return;
     return chat.say(await handleUptime());
+  }
+
+  if (name === "출첵") {
+    if (!getEffectiveEnabled("출첵")) return;
+    if (!hasPermission(userRoleCode, getEffectivePermission("출첵"))) return;
+    if (checkSystemCooldown("출첵", userId)) return;
+
+    if (!(await isChannelLive())) {
+      return chat.say("방송 중에만 출석체크할 수 있어요.");
+    }
+
+    const { alreadyChecked, record } = attendanceStore.checkIn(userId, nickname);
+    if (alreadyChecked) {
+      return chat.say(`${nickname}님은 오늘 이미 출석하셨어요.`);
+    }
+    attendanceStore.refreshProfileImage(userId).catch(() => {});
+    return chat.say(
+      `${nickname}님 출석체크 완료! 연속 ${record.currentStreak}일째, 총 ${record.totalCount}회 출석이에요.`
+    );
   }
 
   // ---- 커스텀 명령어 ----
