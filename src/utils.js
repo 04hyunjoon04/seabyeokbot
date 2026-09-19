@@ -1,11 +1,17 @@
 "use strict";
 
-// 예전에 cooldown.js / permissions.js / template.js / botLog.js로 나뉘어 있던,
-// 서로 기능은 다르지만 각각 1KB 안팎으로 아주 작았던 유틸리티들을 파일 수를 줄이기
-// 위해 한 파일로 모았어요. 동작은 전혀 안 바뀌었고, utils.cooldown / utils.permissions /
-// utils.template / utils.botLog 로 이름만 묶어서 씀.
+// cooldown / permissions / template / botLog / atomicWriteJson 유틸리티 모음. utils.cooldown 등으로 사용.
 
-// ---- cooldown: 명령어별 전체 쿨타임 + 유저별 쿨타임을 메모리에서 관리 (프로세스 재시작하면 초기화됨) ----
+const fs = require("fs");
+
+// ---- atomicWriteJson: 임시 파일에 쓴 뒤 교체해 저장 중 강제종료로 인한 파일 손상 방지 ----
+function atomicWriteJson(filePath, data) {
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+  fs.renameSync(tmpPath, filePath);
+}
+
+// ---- cooldown: 명령어별 전체 쿨타임 + 유저별 쿨타임을 메모리에서 관리 (프로세스 재시작 시 초기화) ----
 const lastGlobalUse = new Map(); // commandName -> timestamp(ms)
 const lastUserUse = new Map(); // `${commandName}:${userId}` -> timestamp(ms)
 
@@ -34,11 +40,10 @@ function markUsed(commandName, userId) {
 
 const cooldown = { isOnCooldown, markUsed };
 
-// ---- permissions: 치지직 Open API 채팅 이벤트의 userRoleCode 값을 등급으로 매핑 ----
-// (실제 값은 문서상 streamer / streaming_channel_manager / streaming_chat_manager / common_user 로 확인됨)
+// ---- permissions: 치지직 Open API 채팅 이벤트의 userRoleCode를 권한 등급으로 매핑 ----
 const LEVELS = {
   everyone: 0,
-  manager: 1, // 채팅 관리자 / 채널 관리자 (치지직 자체 매니저 권한을 가진 사람)
+  manager: 1, // 채팅 관리자 / 채널 관리자
   streamer: 2, // 채널 주인
 };
 
@@ -62,8 +67,7 @@ function hasPermission(userRoleCode, required) {
 
 const permissions = { LEVELS, levelOf, hasPermission };
 
-// ---- template: 아주 단순한 변수 치환기. $nick / $name 정도만 우선 지원 ----
-// (팔로우 확인, 출석 횟수 같은 고급 변수는 실제로 필요해지면 추후 추가 예정)
+// ---- template: 변수 치환기. $nick / $name 지원 ----
 function render(text, ctx) {
   return text
     .replace(/\$nick\b/g, ctx.nickname || "")
@@ -77,9 +81,7 @@ function pickRandom(list) {
 
 const template = { render, pickRandom };
 
-// ---- botLog: 봇 연결/채팅 관련 로그를 메모리에 잠깐 모아뒀다가 대시보드("봇 연결 상태"
-// 카드)에서 터미널처럼 보여주기 위한 모듈. 콘솔에는 기존처럼 그대로 출력하면서, 동시에
-// 최근 로그 N개를 링 버퍼에 저장해서 /api/bot/logs 로 조회할 수 있게 함. ----
+// ---- botLog: 콘솔 출력과 함께 최근 로그를 링 버퍼에 저장. /api/bot/logs로 조회. ----
 const MAX_LOG_ENTRIES = 300;
 const logEntries = [];
 
@@ -113,4 +115,4 @@ function clearLogs() {
 
 const botLog = { log: logInfo, warn: logWarn, error: logError, getAll: getAllLogs, clear: clearLogs };
 
-module.exports = { cooldown, permissions, template, botLog };
+module.exports = { cooldown, permissions, template, botLog, atomicWriteJson };

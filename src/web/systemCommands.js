@@ -3,8 +3,7 @@
 const config = require("../config");
 const overrides = require("../systemCommandStore");
 
-// 봇에 내장된(코드로 고정된) 명령어 목록. 응답 로직 자체는 코드에 고정돼 있지만,
-// "필요 권한"만은 대시보드에서 바꿀 수 있음 (systemCommandStore 오버라이드로 저장).
+// 봇에 내장된 명령어 목록. 응답 로직은 고정, "필요 권한"만 대시보드에서 조정 가능.
 const DEFINITIONS = [
   {
     key: "핑",
@@ -66,8 +65,7 @@ function getEffectiveEnabled(key) {
   return overrides.getEnabled(key, true);
 }
 
-// 명령어 처리 로직(src/commands/index.js)에서 실제 권한/쿨타임 판정에 쓰는 헬퍼.
-// 오버라이드가 없으면 코드에 정의된 기본값을 그대로 씀.
+// src/commands/index.js가 권한/쿨타임 판정에 사용하는 헬퍼. 오버라이드가 없으면 기본값 사용.
 function getEffectivePermission(key) {
   const def = DEFINITIONS.find((d) => d.key === key);
   const defaultPermission = def ? def.defaultPermission : "everyone";

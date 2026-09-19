@@ -13,9 +13,17 @@ const commandStore = require("../commandStore");
 const banwordStore = require("../banwordStore");
 const systemCommandStore = require("../systemCommandStore");
 const { getSystemCommands } = require("./systemCommands");
+const { RESERVED_NAMES } = require("../commands");
 
-// package.json의 버전을 관리 페이지에 그대로 보여주기 위해 읽어둠 (빌드 시점 값 그대로,
-// 매 요청마다 파일을 다시 읽을 필요 없어서 시작할 때 한 번만 읽음)
+const DEFAULT_COOLDOWN_SEC = 3;
+
+// 쿨타임 입력값이 숫자가 아니거나 음수면 기본값으로 대체
+function sanitizeCooldown(value, fallback = DEFAULT_COOLDOWN_SEC) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+// 관리 페이지에 표시할 앱 버전. 시작 시 한 번만 읽음.
 let appVersion = "";
 try {
   appVersion = require("../../package.json").version || "";
@@ -23,10 +31,7 @@ try {
   appVersion = "";
 }
 
-// 로그 확인 창은 크롬 새 탭이 아니라 이 앱과 똑같은 Electron 창으로 띄웁니다.
-// (server.js는 electron-main.js가 시작한 메인 프로세스 안에서 그대로 실행되므로
-// 여기서 바로 BrowserWindow를 만들 수 있어요. CLI(node index.js)로 실행 중이면
-// Electron 자체가 없으니 그 환경에서는 브라우저 탭으로 대체하도록 안내만 함.)
+// 로그 확인 창은 같은 Electron 창으로 띄움. CLI 실행 시엔 Electron이 없어 사용 불가.
 let electronMod = null;
 try {
   electronMod = require("electron");
@@ -37,7 +42,7 @@ const isElectron = !!(electronMod && typeof electronMod === "object");
 const BrowserWindow = isElectron ? electronMod.BrowserWindow : null;
 let logWindow = null;
 
-// 채널 프로필(이름/이미지) 캐시 — 매 요청마다 CHZZK API를 부르지 않도록 잠깐 기억해둠
+// 채널 프로필(이름/이미지) 캐시
 let channelProfileCache = null;
 let channelProfileCacheAt = 0;
 const CHANNEL_PROFILE_TTL_MS = 60_000;
@@ -113,7 +118,7 @@ function createApp() {
     })
   );
 
-  // ---- 시스템 명령어 (응답 로직은 고정, 필요 권한만 조정 가능) ----
+  // ---- 시스템 명령어 (로직은 고정, 권한/쿨타임만 조정 가능) ----
   app.get(
     "/api/system-commands",
     wrap((req, res) => {
@@ -167,12 +172,13 @@ function createApp() {
       if (!response || !response.trim()) return fail(res, 400, "응답 메시지를 입력해주세요.");
 
       const key = name.trim().replace(new RegExp(`^\\${config.commandPrefix}`), "");
+      if (RESERVED_NAMES.has(key)) return fail(res, 400, `'${key}'는 기본 명령어 이름이라 사용할 수 없어요.`);
       if (commandStore.has(key)) return fail(res, 400, `'${key}' 명령어가 이미 있어요.`);
 
       const created = commandStore.add(key, response, {
         permission,
-        cooldownSec: cooldownSec !== undefined ? Number(cooldownSec) : undefined,
-        userCooldownSec: userCooldownSec !== undefined ? Number(userCooldownSec) : undefined,
+        cooldownSec: cooldownSec !== undefined ? sanitizeCooldown(cooldownSec) : undefined,
+        userCooldownSec: userCooldownSec !== undefined ? sanitizeCooldown(userCooldownSec) : undefined,
         listed,
         description,
       });
@@ -192,8 +198,8 @@ function createApp() {
       if (response !== undefined) commandStore.update(name, response);
       commandStore.setMeta(name, {
         ...(permission !== undefined ? { permission } : {}),
-        ...(cooldownSec !== undefined ? { cooldownSec: Number(cooldownSec) } : {}),
-        ...(userCooldownSec !== undefined ? { userCooldownSec: Number(userCooldownSec) } : {}),
+        ...(cooldownSec !== undefined ? { cooldownSec: sanitizeCooldown(cooldownSec) } : {}),
+        ...(userCooldownSec !== undefined ? { userCooldownSec: sanitizeCooldown(userCooldownSec) } : {}),
         ...(listed !== undefined ? { listed } : {}),
         ...(description !== undefined ? { description } : {}),
       });
@@ -259,7 +265,7 @@ function createApp() {
     })
   );
 
-  // ---- 계정 연동 (치지직 애플리케이션 설정 — 채널 프로필 조회용 Client ID/Secret) ----
+  // ---- 계정 연동 ----
   app.get(
     "/api/auth/status",
     wrap((req, res) => {
@@ -285,7 +291,7 @@ function createApp() {
         updates.CLIENT_ID = config.clientId;
       }
       if (clientSecret !== undefined && String(clientSecret).trim() !== "") {
-        // 빈 값으로 보내면(= 화면에서 안 건드림) 기존 값을 유지함 (마스킹된 값을 실수로 덮어쓰지 않도록)
+        // 빈 값이면(=화면에서 안 건드림) 기존 값 유지 — 마스킹된 값을 덮어쓰지 않도록
         config.clientSecret = String(clientSecret).trim();
         updates.CLIENT_SECRET = config.clientSecret;
       }
@@ -293,10 +299,7 @@ function createApp() {
         config.channelId = String(channelId).trim();
         updates.CHANNEL_ID = config.channelId;
       }
-      // Redirect URI는 사람마다(포트나 도메인이 다르면) 다르게 등록돼있을 수 있어서,
-      // 치지직 개발자 센터에 등록해둔 값을 그대로 붙여넣으면 되게 함. 그 값에서 포트를
-      // 추출해서 WEB_PORT도 같이 맞춰줌 — 관리 페이지랑 콜백을 같은 포트에서 받아야 하거든요.
-      // (실제로 적용되려면 이미 그 포트로 켜져있는 웹서버를 재시작해야 해서, 앱을 껐다 켜야 함)
+      // Redirect URI에서 포트를 추출해 WEB_PORT도 함께 반영 (적용에는 재시작 필요)
       if (redirectUri !== undefined && String(redirectUri).trim() !== "") {
         const trimmed = String(redirectUri).trim();
         let parsed;
@@ -341,8 +344,6 @@ function createApp() {
   );
 
   // ---- 치지직 공식 OAuth 인가 ----
-  // 방송인(또는 매니저 계정)이 "치지직 인가 페이지"에서 한 번 로그인/허용해주면
-  // 그 계정 권한으로 채팅 읽기/쓰기/제재를 대신 수행하는 방식이에요.
   app.get(
     "/api/oauth/status",
     wrap((req, res) => {
@@ -355,8 +356,7 @@ function createApp() {
     })
   );
 
-  // 인가 페이지 URL을 새로 발급해서 돌려줌 (프론트에서 이 URL을 시스템 브라우저나
-  // 별도 창으로 열어서 방송인이 로그인/허용하도록 안내함)
+  // 인가 페이지 URL 발급
   app.get(
     "/api/oauth/authorize-url",
     wrap((req, res) => {
@@ -364,8 +364,7 @@ function createApp() {
     })
   );
 
-  // 인가 페이지를 바로 사용자의 실제 브라우저로 열어줌 (이미 네이버에 로그인돼있을 수 있고,
-  // 앱 내장 창보다 로그인 성공률이 높아서 임베드된 창 대신 시스템 브라우저를 씀)
+  // 인가 페이지를 시스템 브라우저로 연다
   app.post(
     "/api/oauth/open",
     wrap((req, res) => {
@@ -379,8 +378,7 @@ function createApp() {
     })
   );
 
-  // 인가 페이지에서 허용을 누르면 치지직이 이 주소(redirectUri)로 code/state를 돌려줌.
-  // 여기서 바로 토큰으로 교환하고, 사용자에게는 간단한 안내 페이지만 보여줌.
+  // 인가 완료 후 치지직이 code/state를 돌려주는 콜백. 여기서 토큰으로 교환.
   app.get(
     "/callback",
     wrap(async (req, res) => {
@@ -416,9 +414,7 @@ function createApp() {
     })
   );
 
-  // 발급된 accessToken/refreshToken 실제 값 조회 — 절대 로그로 남기지 않고,
-  // 사용자가 대시보드에서 "값 보기" 버튼을 눌렀을 때만 호출됨. 유출되면 그 권한으로
-  // API가 호출될 수 있는 민감한 값이라 별도 안내 없이 노출하지 않도록 주의.
+  // 실제 토큰 값 조회. "값 보기" 버튼을 눌렀을 때만 호출됨 — 로그에 남기지 않음.
   app.get(
     "/api/oauth/tokens",
     wrap((req, res) => {
@@ -430,7 +426,7 @@ function createApp() {
     })
   );
 
-  // ---- 봇 연결/채팅 로그 (대시보드에서 실시간 터미널처럼 확인용) ----
+  // ---- 봇 연결/채팅 로그 ----
   app.get(
     "/api/bot/logs",
     wrap((req, res) => {
@@ -446,7 +442,7 @@ function createApp() {
     })
   );
 
-  // 로그 확인 창을 이 앱과 같은 Electron 창(별도 데스크톱 창)으로 엽니다.
+  // 로그 확인 창을 별도 Electron 창으로 연다
   app.post(
     "/api/bot/open-log-window",
     wrap((req, res) => {
@@ -482,7 +478,7 @@ function startWebServer() {
   }
 
   const app = createApp();
-  // 127.0.0.1 에만 바인딩 — 같은 컴퓨터에서만 접속 가능 (원격 접속 불가)
+  // 127.0.0.1에만 바인딩 — 같은 컴퓨터에서만 접속 가능
   const server = app.listen(config.webPort, "127.0.0.1", () => {
     console.log(`[web] 관리 페이지: http://localhost:${config.webPort} (이 컴퓨터에서만 접속 가능)`);
   });

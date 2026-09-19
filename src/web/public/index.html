@@ -311,6 +311,16 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+}
+
+function encodeForHandler(str) {
+  return encodeURIComponent(String(str)).replace(/'/g, '%27');
+}
+
 async function api(method, url, body) {
   const res = await fetch(url, {
     method,
@@ -324,7 +334,7 @@ async function api(method, url, body) {
 
 function permBadge(p) {
   const label = { everyone: '시청자', manager: '매니저', streamer: '스트리머' }[p] || p;
-  return `<span class="badge ${p}">${label}</span>`;
+  return `<span class="badge ${escapeHtml(p)}">${escapeHtml(label)}</span>`;
 }
 
 // ---- 네비게이션 ----
@@ -344,15 +354,11 @@ function showPage(pageName) {
 
   if (pageName === 'account') {
     loadAccountPage(true);
-    // 인가 페이지에서 허용을 누르고 돌아와도 이 탭이 저절로 바뀌지는 않으니, 계정 연동
-    // 탭을 보고 있는 동안엔 몇 초마다 상태를 다시 확인해서 초록불이 자동으로 켜지게 함.
-    // (입력칸 값은 덮어쓰지 않도록 populateFields는 false로 둠 — 위 loadAccountPage 설명 참고)
+    // 인가 상태 자동 갱신을 위해 3초마다 재확인, 입력값 보존을 위해 populateFields는 false
     pagePollTimer = setInterval(() => loadAccountPage(false), 3000);
   } else if (pageName === 'commands') {
     loadCommands();
-    // 채팅에서 !추가/!수정/!제거로 명령어가 바뀔 수 있어서, 이 탭을 보고 있는 동안엔
-    // 몇 초마다 목록을 다시 불러와서 즉시 반영되게 함 (안 그러면 새로고침 전까진
-    // "이미 있는 명령어"라는 오류만 보고 실제로는 안 보이는 것처럼 느껴짐)
+    // 채팅 명령어 변경 반영을 위해 3초마다 목록 재조회
     pagePollTimer = setInterval(loadCommands, 3000);
   }
 }
@@ -361,7 +367,7 @@ async function openLogViewer() {
   try {
     await api('POST', '/api/bot/open-log-window', {});
   } catch (err) {
-    // Electron 앱이 아니라 CLI 등으로 실행 중일 때는 브라우저 새 탭으로 대체
+    // CLI 모드 등 Electron 창이 없을 때는 새 탭으로 대체
     window.open('/log-viewer.html', 'saebyeokBotLog', 'width=760,height=520,menubar=no,toolbar=no');
   }
 }
@@ -382,35 +388,37 @@ async function loadCommands() {
   }
   body.innerHTML = state.commands.map((c) => `
     <tr>
-      <td><strong>!${c.name}</strong></td>
-      <td class="muted">${(c.responses || []).join(' || ')}</td>
+      <td><strong>!${escapeHtml(c.name)}</strong></td>
+      <td class="muted">${(c.responses || []).map(escapeHtml).join(' || ')}</td>
       <td>${permBadge(c.permission)}</td>
       <td>${c.cooldownSec}초 / 유저 ${c.userCooldownSec}초</td>
       <td>${c.uses || 0}</td>
       <td>
         <label class="switch">
-          <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleCommand('${c.name}', this.checked)">
+          <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleCommand('${encodeForHandler(c.name)}', this.checked)">
           <span class="slider"></span>
         </label>
       </td>
       <td>
         <div style="display:flex; gap:6px;">
           <button class="ghost" onclick='openCommandModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>편집</button>
-          <button class="danger" onclick="deleteCommand('${c.name}')">삭제</button>
+          <button class="danger" onclick="deleteCommand('${encodeForHandler(c.name)}')">삭제</button>
         </div>
       </td>
     </tr>
   `).join('');
 }
 
-async function toggleCommand(name, enabled) {
+async function toggleCommand(encodedName, enabled) {
+  const name = decodeURIComponent(encodedName);
   try {
     await api('PATCH', `/api/commands/${encodeURIComponent(name)}/enabled`, { enabled });
     toast(enabled ? '명령어를 켰어요.' : '명령어를 껐어요.');
   } catch (err) { toast('오류: ' + err.message); loadCommands(); }
 }
 
-async function deleteCommand(name) {
+async function deleteCommand(encodedName) {
+  const name = decodeURIComponent(encodedName);
   if (!confirm(`'!${name}' 명령어를 삭제할까요?`)) return;
   try {
     await api('DELETE', `/api/commands/${encodeURIComponent(name)}`);
@@ -427,12 +435,12 @@ function openCommandModal(existing) {
   const userCooldownSec = isEdit ? existing.userCooldownSec : 3;
 
   buildModal(`
-    <h2>${isEdit ? `명령어 편집 (!${existing.name})` : '명령어 추가'}</h2>
+    <h2>${isEdit ? `명령어 편집 (!${escapeHtml(existing.name)})` : '명령어 추가'}</h2>
     <div class="field">
       <label>명령어 이름 (! 없이)</label>
-      <input type="text" id="cmdName" placeholder="예: 인사" value="${isEdit ? existing.name : ''}" ${isEdit ? 'disabled' : ''} />
+      <input type="text" id="cmdName" placeholder="예: 인사" value="${isEdit ? escapeHtml(existing.name) : ''}" ${isEdit ? 'disabled' : ''} />
     </div>
-    <div class="field"><label>응답 메시지 (||로 구분하면 랜덤 응답, $nick으로 닉네임 치환)</label><textarea id="cmdResponse" placeholder="안녕하세요! 반갑습니다 :>">${responseText}</textarea></div>
+    <div class="field"><label>응답 메시지 (||로 구분하면 랜덤 응답, $nick으로 닉네임 치환)</label><textarea id="cmdResponse" placeholder="안녕하세요! 반갑습니다 :>">${escapeHtml(responseText)}</textarea></div>
     <div class="field-row">
       <div class="field grow"><label>필요 권한</label>
         <select id="cmdPermission">
@@ -446,12 +454,13 @@ function openCommandModal(existing) {
     </div>
     <div class="modal-actions">
       <button class="cancel" onclick="closeModal()">취소</button>
-      <button class="confirm" onclick="submitCommand(${isEdit ? `'${existing.name}'` : 'null'})">${isEdit ? '저장' : '추가'}</button>
+      <button class="confirm" onclick="submitCommand(${isEdit ? `'${encodeForHandler(existing.name)}'` : 'null'})">${isEdit ? '저장' : '추가'}</button>
     </div>
   `);
 }
 
-async function submitCommand(editingName) {
+async function submitCommand(editingEncodedName) {
+  const editingName = editingEncodedName ? decodeURIComponent(editingEncodedName) : null;
   const name = document.getElementById('cmdName').value.trim();
   const response = document.getElementById('cmdResponse').value.trim();
   const permission = document.getElementById('cmdPermission').value;
@@ -539,7 +548,7 @@ async function loadBanwords() {
   }
   body.innerHTML = state.banwords.map((w) => `
     <tr>
-      <td><strong>${w.word}</strong></td>
+      <td><strong>${escapeHtml(w.word)}</strong></td>
       <td>${w.action === 'timeout' ? '임시 제한' : '메시지 블라인드(삭제)'}</td>
       <td>
         <label class="switch">
@@ -618,11 +627,7 @@ function setStatusDot(id, level) {
   el.className = 'status-dot' + (level ? ' ' + level : '');
 }
 
-// populateFields가 true일 때만 Client ID/Secret/채널 ID 입력칸 값을 서버 값으로 덮어써요.
-// 이 탭을 보고 있는 동안 3초마다 자동으로 다시 불러오는데(계정 인가 상태를 실시간으로
-// 보여주기 위해서), 그때마다 이 입력칸까지 덮어쓰면 사용자가 막 입력하던 값이 저장하기도
-// 전에 계속 지워지는 문제가 있었어요. 그래서 탭을 처음 열 때/저장한 직후에만 채워넣고,
-// 그 사이 자동 새로고침에서는 입력칸은 건드리지 않고 인가 상태만 갱신해요.
+// populateFields는 탭 진입/저장 직후에만 true, 자동 새로고침 중엔 입력값 보존을 위해 false
 async function loadAccountPage(populateFields) {
   try {
     const s = await api('GET', '/api/auth/status');
@@ -658,8 +663,7 @@ function renderOAuthStatus(o) {
     document.getElementById('oauthStatusText').textContent = '아직 인가 전이에요. "치지직 인가 페이지 열기"를 눌러주세요.';
   }
 
-  // 3초마다 자동으로 다시 불러오는 중이라, 이미 "값 보기"로 펼쳐놓은 상태라면 매번
-  // 도로 가려버리지 않도록 값이 펼쳐져 있을 땐 건드리지 않음
+  // "값 보기"로 펼친 상태면 자동 새로고침에도 유지
   const accessEl = document.getElementById('accessTokenValue');
   const refreshEl = document.getElementById('refreshTokenValue');
   const toggleBtn = document.getElementById('toggleTokenBtn');
@@ -710,7 +714,7 @@ async function startOAuth() {
     document.getElementById('oauthMessage').textContent = '';
     const result = await api('POST', '/api/oauth/open', {});
     if (!result.opened) {
-      // Electron이 아닌 환경(CLI 모드)이면 새 탭으로라도 열어줌
+      // CLI 모드면 새 탭으로 대체
       window.open(result.url, '_blank');
     }
     toast('인가 페이지를 열었어요. 로그인 후 "허용"을 눌러주세요.');

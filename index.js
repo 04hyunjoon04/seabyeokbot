@@ -1,8 +1,6 @@
 "use strict";
 
-// Electron 데스크톱 앱 / CLI 양쪽에서 재사용하는 봇 진입점.
-// 이 버전은 치지직 "공식" Open API(OAuth 인가 + 세션 구독)만 사용합니다.
-// (봇 전용 네이버 계정 로그인 자동화 없이, 방송인/매니저 계정이 앱에 권한을 한 번 허용하는 방식)
+// Electron 앱과 CLI에서 공통으로 쓰는 봇 진입점. 치지직 공식 Open API(OAuth 인가 + 세션 구독)만 사용.
 
 const config = require("./src/config");
 const official = require("./src/official/chzzkOfficial");
@@ -18,10 +16,10 @@ let webServerInstance = null;
 let sessionStarting = false;
 let handlersRegistered = false;
 
-// 봇 세션(인가/채팅 연결) 상태. 관리 페이지의 "계정 연동" 탭에서 이 값을 보여줌.
+// 봇 세션 상태. 관리 페이지 "계정 연동" 탭에서 표시.
 const botStatus = {
-  authReady: false, // 치지직 인가(OAuth)가 완료돼서 연결을 시도할 수 있는 상태인지
-  sessionConnected: false, // 지금 채팅 세션에 연결되어있는지
+  authReady: false,
+  sessionConnected: false,
   lastError: null,
 };
 
@@ -29,8 +27,7 @@ function getBotStatus() {
   return { ...botStatus };
 }
 
-// chat/donation 이벤트 핸들러는 프로세스 생애주기 동안 딱 한 번만 등록합니다.
-// (재연결마다 등록하면 이벤트가 중복으로 처리됨)
+// chat/donation 핸들러는 프로세스 생애주기 동안 한 번만 등록.
 function registerHandlersOnce() {
   if (handlersRegistered) return;
   handlersRegistered = true;
@@ -42,7 +39,7 @@ function registerHandlersOnce() {
   });
 
   official.on("donation", (evt) => {
-    // TODO: 후원 감지 후 알림 / 룰렛 트리거 등은 여기서 이어서 구현
+    // TODO: 후원 감지 후 알림 / 룰렛 트리거
   });
 
   official.on("statusChange", ({ connected }) => {
@@ -50,8 +47,7 @@ function registerHandlersOnce() {
   });
 }
 
-// 치지직 인가 + 채팅 세션 연결을 (다시) 시작합니다. 최초 실행 때도, "계정 연동" 탭에서
-// 사용자가 인가를 새로 마친 뒤 다시 연결할 때도 이 함수를 재사용합니다.
+// 인가 + 채팅 세션 연결을 (다시) 시작.
 async function startOrRestartSession() {
   if (sessionStarting) return { ok: false, error: "이미 연결을 시도하는 중이에요." };
   sessionStarting = true;
@@ -86,11 +82,7 @@ async function startOrRestartSession() {
   }
 }
 
-// 봇을 시작합니다. CLI(node index.js)에서도, Electron 앱(electron-main.js)에서도
-// 똑같이 이 함수를 불러 씁니다. 두 번 이상 불려도 안전하도록 가드를 둠.
-//
-// 관리 페이지(웹 대시보드)는 인가가 아직 안 되어있어도 항상 먼저 뜨도록 만들었어요 —
-// "계정 연동" 탭에서 치지직 인가를 진행할 수 있어야 하니까요.
+// 봇 시작. 두 번 이상 호출돼도 안전.
 async function startBot() {
   if (started) return { webServer: webServerInstance };
   started = true;
@@ -100,15 +92,10 @@ async function startBot() {
   botControl.register({ getStatus: getBotStatus, restartSession: startOrRestartSession });
   webServerInstance = startWebServer();
 
-  // accessToken(24시간)/refreshToken(30일) 만료 전에 자동으로 갱신 — 앱을 30일 안에
-  // 한 번씩만 켜두면 다시 인가할 필요 없이 계속 이어서 쓸 수 있어요.
+  // accessToken/refreshToken 만료 전 자동 갱신
   oauthClient.startAutoRefresh();
 
-  // 세션 연결은 실패하면 최대 15초까지 걸릴 수 있어서(세션 연결 확인 + 구독까지 실제로
-  // 기다림), 여기서 기다렸다가 창을 띄우면 인가가 안 됐거나 연결이 안 될 때 앱 자체가
-  // 켜지는 데 오래 걸리는 것처럼 느껴져요. 그래서 창은 바로 뜨게 두고, 연결은 백그라운드에서
-  // 진행한 뒤 결과만 로그/상태로 반영해요(관리 페이지가 몇 초마다 상태를 다시 불러오니
-  // 연결되면 자동으로 초록불이 켜져요).
+  // 세션 연결은 최대 15초 걸릴 수 있어 창을 먼저 띄우고 백그라운드로 진행. 결과는 상태로 반영되어 관리 페이지에 표시됨.
   startOrRestartSession()
     .then((result) => {
       if (!result.ok) {
@@ -127,13 +114,13 @@ async function startBot() {
 function stopBot() {
   official.stop();
   oauthClient.stopAutoRefresh();
-  commandStore.flush(); // 디바운스로 미뤄둔 사용 횟수 저장이 있으면 종료 전에 마저 저장
+  commandStore.flush(); // 디바운스된 사용 횟수 저장을 즉시 처리
   if (webServerInstance) webServerInstance.close();
 }
 
 module.exports = { startBot, stopBot, startOrRestartSession, getBotStatus, config };
 
-// 터미널에서 직접 `node index.js` 로 실행했을 때만 자동으로 시작 (Electron에서 require할 땐 안 켜짐)
+// `node index.js`로 직접 실행했을 때만 자동 시작
 if (require.main === module) {
   startBot().catch((err) => {
     console.error("치명적 오류로 종료합니다:", err);

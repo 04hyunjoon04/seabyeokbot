@@ -1,42 +1,23 @@
 "use strict";
 
-// Electron 데스크톱 앱의 진입점. 콘솔 창 없이 일반 프로그램처럼 창 하나가 뜨고,
-// 그 안에서 지금까지 만든 관리 페이지(로컬 웹서버)를 그대로 보여줍니다.
-// 봇 자체(로그인/채팅 연결/명령어 처리)는 기존 index.js의 startBot()을 그대로 재사용해요.
-//
-// 창을 X로 닫아도 봇은 계속 방송 채팅에 붙어있어야 하므로, X를 누르면 바로 종료하지
-// 않고 "완전히 종료할지 / 백그라운드에서 계속 실행할지" 물어봅니다. 트레이(알림 영역)
-// 아이콘으로도 언제든 창을 다시 열거나 완전히 종료할 수 있어요.
+// Electron 데스크톱 앱 진입점. 관리 페이지 창을 띄우고 봇 로직은 index.js의 startBot()을 재사용.
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { app, BrowserWindow, Menu, dialog, shell, Tray } = require("electron");
 
-// 윈도우 11(빌드 22000 이상)인지 확인. os.release()는 커널 버전을 주는데, 윈도우 11도
-// 내부적으로는 "10.0.빌드번호" 형식이라 메이저/마이너 버전만으로는 10과 11을 구분할 수
-// 없고, 빌드 번호로 구분해야 함(마이크로소프트가 공식적으로 안내하는 방식).
+// 윈도우 11(빌드 22000 이상) 여부 확인. os.release()는 10/11 모두 "10.0.빌드번호" 형식이라 빌드 번호로만 구분 가능.
 function isWindows11() {
   if (process.platform !== "win32") return false;
   const build = Number(os.release().split(".")[2]);
   return Number.isFinite(build) && build >= 22000;
 }
 
-// index.js(→config.js)가 사용자 데이터 폴더 경로(app.getPath("userData"))를 계산하기 전에
-// 앱 이름을 먼저 정해둬야, 데이터(+.env)가 그 이름의 폴더에 저장돼요.
-//
-// 예전에는 한글 이름("새벽봇")을 그대로 썼는데, 한글 경로는 일부 도구(백신, 특정
-// 라이브러리 등)에서 문제를 일으킬 수 있어서 영문 이름("saebyeokbot")으로 바꿨어요.
-// 화면에 보이는 이름(창 제목, 트레이 등)은 여전히 "새벽봇"이고, 내부 저장 폴더
-// 이름만 영문으로 바뀌는 거예요.
-//
-// 다만 이렇게 이름만 덜컥 바꾸면, 예전 버전을 쓰던 사람은 데이터가 여전히
-// %APPDATA%\새벽봇 에 있는데 새 버전은 %APPDATA%\saebyeokbot 을 보게 되어
-// "데이터가 초기화된 것처럼" 보이는 문제가 생겨요. 그래서 새 폴더가 아직 없고
-// 예전(한글 이름) 폴더가 있으면, 최초 실행 시 한 번만 그대로 복사해서 옮겨줘요.
+// %APPDATA%\새벽봇(구 이름) 데이터가 있고 %APPDATA%\saebyeokbot(현재 이름)이 없으면 최초 실행 시 한 번만 복사.
 function migrateOldKoreanUserDataIfNeeded() {
   try {
-    const appDataRoot = app.getPath("appData"); // 예: C:\Users\XXX\AppData\Roaming (앱 이름과 무관)
+    const appDataRoot = app.getPath("appData");
     const oldUserDataPath = path.join(appDataRoot, "새벽봇");
     const newUserDataPath = path.join(appDataRoot, "saebyeokbot");
     if (!fs.existsSync(newUserDataPath) && fs.existsSync(oldUserDataPath)) {
@@ -51,21 +32,17 @@ function migrateOldKoreanUserDataIfNeeded() {
 migrateOldKoreanUserDataIfNeeded();
 app.setName("saebyeokbot");
 
-// 작업표시줄/알림에서 이 앱을 하나의 프로그램으로 제대로 묶어서 인식하게 해주는 ID.
-// 특히 윈도우 11의 알림 센터·작업표시줄 그룹핑에서 중요해서 명시적으로 지정해둠
-// (안 정해두면 Electron 실행 파일 경로 기준으로 대충 정해져서, 아이콘이 따로 놀거나
-// 알림에 "Electron"처럼 엉뚱한 이름이 뜰 수 있음).
+// 작업표시줄/알림 센터에서 이 앱을 하나의 프로그램으로 인식시키는 ID.
 app.setAppUserModelId("com.saebyeokbot.official");
 
 const { startBot, stopBot, config } = require("./index.js");
+const { atomicWriteJson } = require("./src/utils");
 
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 
-// "창 닫기" 물어보는 창에서 "다음부터 이 설정 기억하기"를 체크했을 때 그 선택을
-// 저장해두는 파일. data 폴더(=%APPDATA%\saebyeokbot\data\)에 저장되니까 새 버전을
-// 설치해도 그대로 유지돼요.
+// 창 닫기 확인창의 "다음부터 기억하기" 선택을 저장하는 파일. data 폴더에 저장되어 업데이트 후에도 유지됨.
 const windowPrefsFilePath = path.join(config.dataDir, "windowPrefs.json");
 
 function loadWindowPrefs() {
@@ -80,7 +57,7 @@ function loadWindowPrefs() {
 function saveWindowPrefs(prefs) {
   try {
     fs.mkdirSync(path.dirname(windowPrefsFilePath), { recursive: true });
-    fs.writeFileSync(windowPrefsFilePath, JSON.stringify(prefs, null, 2), "utf8");
+    atomicWriteJson(windowPrefsFilePath, prefs);
   } catch (err) {
     console.error("[electron-main] 창 닫기 설정 저장 실패:", err.message);
   }
@@ -124,9 +101,7 @@ function createTray() {
 function createWindow(webServer) {
   const url = `http://localhost:${config.webPort}`;
 
-  // 윈도우 11에서는 Mica(반투명 배경) 효과를 줘서 다른 윈도우 11 기본 앱들과 비슷한
-  // 느낌이 나게 함. 윈도우 10에서는 이 옵션 자체가 지원되지 않아서(Electron이 조용히
-  // 무시하긴 하지만) 아예 안 넣어서 기존 그대로의 불투명 배경을 유지함.
+  // 윈도우 11에서는 Mica 반투명 배경 적용. 윈도우 10에서는 옵션 자체를 넣지 않음.
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -140,10 +115,9 @@ function createWindow(webServer) {
     },
   });
 
-  Menu.setApplicationMenu(null); // 파일/편집/보기 같은 기본 메뉴바 숨김 (깔끔하게)
+  Menu.setApplicationMenu(null);
 
-  // 대시보드에서 여는 외부 링크(치지직 로그인/인가 페이지 등)는 앱 안이 아니라
-  // 사용자의 실제 브라우저로 열어줌 (이미 로그인돼있을 수 있고, 보안상으로도 이게 맞음)
+  // 대시보드에서 여는 외부 링크는 앱 창이 아니라 시스템 브라우저로 오픈.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -152,7 +126,7 @@ function createWindow(webServer) {
   function loadDashboard() {
     if (!mainWindow) return;
     mainWindow.loadURL(url).catch(() => {
-      setTimeout(loadDashboard, 500); // 웹서버가 아직 뜨는 중이면 잠시 후 재시도
+      setTimeout(loadDashboard, 500); // 웹서버가 아직 뜨는 중이면 재시도
     });
   }
 
@@ -163,17 +137,12 @@ function createWindow(webServer) {
     loadDashboard();
   }
 
-  // X 버튼을 눌러도 바로 종료하지 않고 매번 물어봄. "백그라운드 실행"을 고르면
-  // 창을 완전히 숨기지 않고 최소화만 해서 작업표시줄 버튼은 그대로 남겨둠 —
-  // 그래야 트레이를 몰라도 작업표시줄에서 바로 다시 열 수 있음. 봇 자체는
-  // 창 상태와 무관하게 계속 돌아감(연결 유지).
+  // X 버튼을 눌러도 즉시 종료하지 않고 완전 종료/백그라운드 실행을 매번 확인. 백그라운드 실행 시 창은 최소화될 뿐 봇은 계속 동작.
   mainWindow.on("close", (event) => {
-    if (isQuitting) return; // 트레이의 "완전히 종료" 등으로 진짜 종료하는 경우엔 그대로 닫힘
+    if (isQuitting) return;
 
     event.preventDefault();
 
-    // 예전에 "다음부터 이 설정 기억하기"를 체크해서 저장해둔 선택이 있으면
-    // 다시 물어보지 않고 바로 그 선택대로 처리함.
     const prefs = loadWindowPrefs();
     if (prefs.closeAction === "minimize") {
       mainWindow.minimize();
@@ -200,7 +169,7 @@ function createWindow(webServer) {
         checkboxChecked: false,
       })
       .then(({ response, checkboxChecked }) => {
-        if (!mainWindow) return; // 다이얼로그가 떠있는 동안 창이 이미 없어졌으면 아무 것도 안 함
+        if (!mainWindow) return;
 
         if (response === 0) {
           mainWindow.minimize();
@@ -210,8 +179,7 @@ function createWindow(webServer) {
           isQuitting = true;
           app.quit();
         }
-        // response === 2 (취소): 체크박스를 체크했어도 저장하지 않음 — "취소"는 기억할
-        // 선택이 아니니까요. 아무 것도 안 하고 창을 그대로 둠.
+        // 취소는 저장하지 않음
       });
   });
 
@@ -235,8 +203,7 @@ async function main() {
 
 app.whenReady().then(main);
 
-// 모든 창이 닫혀도(=완전 종료를 선택했을 때만 실제로 여기까지 옴) 앱을 종료함.
-// 백그라운드 실행을 선택한 경우엔 창이 minimize될 뿐 닫히지 않으므로 여기 도달하지 않음.
+// 완전 종료를 선택했을 때만 여기까지 도달. 백그라운드 실행 시엔 창이 최소화될 뿐 닫히지 않음.
 app.on("window-all-closed", () => {
   stopBot();
   app.quit();

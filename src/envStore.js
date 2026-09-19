@@ -1,7 +1,6 @@
 "use strict";
 
-// .env 파일 안의 특정 KEY=VALUE 줄만 골라서 다시 써주는 아주 단순한 유틸.
-// dotenv는 읽기 전용이라, 토큰이 갱신될 때마다 여기서 직접 파일을 고쳐씁니다.
+// .env 파일에서 특정 KEY=VALUE 줄만 골라 다시 쓰는 유틸. dotenv는 읽기 전용이라 토큰 갱신 시 여기서 직접 수정.
 
 const fs = require("fs");
 

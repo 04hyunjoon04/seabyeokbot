@@ -1,6 +1,6 @@
 {
   "name": "saebyeokbot",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "description": "새벽봇 - 치지직(CHZZK) 공식 Open API 기반 채팅 챗봇 (Electron 데스크톱 앱)",
   "author": "새벽봇",

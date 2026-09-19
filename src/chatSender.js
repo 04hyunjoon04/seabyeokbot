@@ -1,7 +1,6 @@
 "use strict";
 
-// 채팅 전송 큐: 명령어가 한꺼번에 여러 개 트리거돼도 순차적으로, 너무 빠르지 않게 보냅니다.
-// 실제 전송은 치지직 공식 Open API로 인가받은 계정 권한으로 official.sendChat()이 담당함.
+// 채팅 전송 큐. 여러 명령어가 동시에 트리거돼도 순차적으로, 일정 간격으로 전송. 실제 전송은 official.sendChat()이 처리.
 const official = require("./official/chzzkOfficial");
 const { botLog } = require("./utils");
 
@@ -31,7 +30,7 @@ async function pump() {
 
 function say(message) {
   if (!message) return Promise.resolve();
-  // 치지직 채팅 메시지 길이 제한(대략 100자 내외)을 넘지 않도록 안전하게 자름
+  // 치지직 채팅 메시지 길이 제한(약 100자)에 맞춰 자름
   const trimmed = String(message).slice(0, 100);
   return new Promise((resolve, reject) => {
     queue.push({ message: trimmed, resolve, reject });

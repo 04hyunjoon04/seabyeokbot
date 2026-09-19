@@ -1,8 +1,6 @@
 "use strict";
 
-// 치지직 공식 Open API 호출. 봇 채팅 연결 자체는 src/official/chzzkOfficial.js가 담당하고,
-// 여기서는 채널 프로필(이름/이미지) 조회에만 씀 — Client ID/Secret 인증만 있으면
-// 되고 봇 계정의 로그인 상태와는 무관함.
+// 치지직 공식 Open API 호출. 채널 프로필(이름/이미지) 조회 전용. 채팅 연결은 src/official/chzzkOfficial.js가 담당.
 
 const config = require("./config");
 
@@ -28,7 +26,7 @@ async function request(pathname, { query } = {}) {
   try {
     json = text ? JSON.parse(text) : null;
   } catch (_err) {
-    // 응답이 JSON이 아닌 경우 (드묾)
+    // 응답이 JSON이 아닌 경우
   }
 
   if (!res.ok || (json && typeof json.code === "number" && json.code !== 200)) {
@@ -42,7 +40,7 @@ async function request(pathname, { query } = {}) {
   return json ? json.content : null;
 }
 
-// 채널 정보 조회는 Bearer 토큰이 아니라 Client-Id/Client-Secret 인증을 씀 (공식 문서 기준, scope 불필요)
+// 채널 정보 조회는 Client-Id/Client-Secret 인증 사용 (Bearer 토큰 불필요)
 const getChannels = (channelIds) =>
   request("/open/v1/channels", { query: { channelIds: channelIds.join(",") } });
 

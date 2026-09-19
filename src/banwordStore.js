@@ -1,17 +1,15 @@
 "use strict";
 
-// 금칙어 목록을 data/banwords.json 에 저장/조회/수정하는 저장소.
-// action: "blind"(메시지 블라인드) | "timeout"(임시 제한)
-// * 영구 차단(벤)은 치지직 공식 Open API에 해당 엔드포인트가 없어 지원하지 않음.
+// 금칙어 목록을 data/banwords.json에 저장/조회/수정하는 저장소. action: "blind" | "timeout" (영구 차단 미지원).
 
 const fs = require("fs");
 const crypto = require("crypto");
 const config = require("./config");
+const { atomicWriteJson } = require("./utils");
 
 let words = []; // [{ id, word, action, enabled, _wordLower }]
 
-// 채팅 메시지마다(=아주 자주) 검사하는 목록이라, 매번 word.toLowerCase()를 반복하지 않도록
-// 불러오거나 추가할 때 한 번만 소문자로 미리 변환해서 같이 들고 있음 (_wordLower).
+// 채팅 메시지마다 검사하므로 소문자 변환은 로드/추가 시 한 번만 캐시.
 function withLowerCache(entry) {
   entry._wordLower = String(entry.word || "").toLowerCase();
   return entry;
@@ -23,10 +21,9 @@ function load() {
     words = JSON.parse(text).map(withLowerCache);
   } catch (err) {
     words = [];
-    if (err.code === "ENOENT") return; // 아직 파일이 없는 최초 실행 — 정상 상황
+    if (err.code === "ENOENT") return; // 파일 없음 (최초 실행)
 
-    // 파일은 있는데 내용이 깨져서 못 읽는 경우(비정상 종료 등). 그냥 빈 목록으로 시작하면
-    // 다음 저장 때 기존 금칙어 목록이 통째로 사라지니, 원본을 백업해두고 빈 값으로 시작함.
+    // 파일 손상 시 백업 후 빈 목록으로 시작
     console.error("[banwordStore] banwords.json 파싱 실패, 빈 목록으로 시작합니다:", err.message);
     try {
       fs.copyFileSync(config.banwordsFilePath, `${config.banwordsFilePath}.corrupted-${Date.now()}.bak`);
@@ -37,11 +34,10 @@ function load() {
 }
 
 function save() {
-  // _wordLower는 메모리 안에서만 쓰는 캐시라서 파일에는 안 남김 (word만 저장해도 다음 로드 때 다시 계산됨)
-  fs.writeFileSync(config.banwordsFilePath, JSON.stringify(words.map(stripInternal), null, 2), "utf8");
+  // _wordLower는 메모리 캐시용이라 파일에는 저장하지 않음
+  atomicWriteJson(config.banwordsFilePath, words.map(stripInternal));
 }
 
-// 바깥(대시보드 API 등)으로 내보낼 때는 내부 캐시 필드(_wordLower)를 감추고 word/action/enabled만 보여줌
 function stripInternal(entry) {
   const { _wordLower, ...rest } = entry;
   return rest;
@@ -78,7 +74,7 @@ function setEnabled(id, enabled) {
   return stripInternal(entry);
 }
 
-// 메시지 안에 활성화된 금칙어가 포함돼 있으면 그 항목을 반환 (부분 일치, 대소문자 무시)
+// 메시지에 활성화된 금칙어가 포함되면 해당 항목 반환 (부분 일치, 대소문자 무시)
 function findMatch(content) {
   if (!content) return null;
   const lower = content.toLowerCase();

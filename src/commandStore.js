@@ -1,10 +1,10 @@
 "use strict";
 
-// 커스텀 명령어를 data/commands.json 에 저장/조회/수정하는 아주 단순한 파일 기반 저장소.
-// (나중에 시청자 수가 많아지면 SQLite 등으로 교체 가능하도록 함수 인터페이스만 분리해둠)
+// 커스텀 명령어를 data/commands.json에 저장/조회/수정하는 파일 기반 저장소.
 
 const fs = require("fs");
 const config = require("./config");
+const { atomicWriteJson } = require("./utils");
 
 let commands = {};
 
@@ -16,8 +16,7 @@ function load() {
     if (err.code === "ENOENT") {
       commands = {};
     } else {
-      // 파일은 있는데 내용이 깨져서 못 읽는 경우. 빈 목록으로 시작하면 다음 저장 때
-      // 기존 커스텀 명령어가 통째로 사라지니, 원본을 백업해두고 빈 값으로 시작함.
+      // 파일 손상 시 백업 후 빈 목록으로 시작
       console.error("[commandStore] commands.json 파싱 실패, 빈 목록으로 시작합니다:", err.message);
       try {
         fs.copyFileSync(config.commandsFilePath, `${config.commandsFilePath}.corrupted-${Date.now()}.bak`);
@@ -30,7 +29,7 @@ function load() {
 }
 
 function save() {
-  fs.writeFileSync(config.commandsFilePath, JSON.stringify(commands, null, 2), "utf8");
+  atomicWriteJson(config.commandsFilePath, commands);
 }
 
 function normalizeName(name) {
@@ -53,7 +52,7 @@ function add(name, responseText, opts = {}) {
   const key = normalizeName(name);
   commands[key] = {
     responses: responseText.split("||").map((s) => s.trim()),
-    permission: opts.permission || "everyone", // 기본값은 누구나 사용 가능(명령어를 새로 만드는 것 자체는 매니저 이상만 가능)
+    permission: opts.permission || "everyone",
     cooldownSec: opts.cooldownSec ?? 3,
     userCooldownSec: opts.userCooldownSec ?? 3,
     enabled: true,
@@ -91,7 +90,7 @@ function setEnabled(name, enabled) {
 
 const META_FIELDS = ["permission", "cooldownSec", "userCooldownSec", "listed", "description"];
 
-// 웹 대시보드에서 응답 문구 외의 설정(권한/쿨타임/목록 노출 여부 등)만 바꿀 때 사용
+// 응답 문구 외 설정(권한/쿨타임/목록 노출 등)만 변경
 function setMeta(name, patch = {}) {
   const key = normalizeName(name);
   if (!has(key)) return null;
@@ -104,13 +103,8 @@ function setMeta(name, patch = {}) {
   return commands[key];
 }
 
-// !명령어가 여러 개 연달아 트리거되면(예: 인기 명령어를 여러 명이 동시에 침) 매번 파일
-// 전체를 동기적으로 다시 써서 저장하게 되는데, 이건 명령어 실행 경로에서 제일 자주 도는
-// 부분이라 그때마다 디스크에 쓰면 응답이 미세하게 늦어질 수 있어요. 그래서 사용 횟수(uses)
-// 증가만은 메모리에서 바로 반영하고, 실제 파일 저장은 짧게 모아뒀다가(디바운스) 한 번에
-// 처리해요. 응답 메시지 자체는 이 저장을 기다리지 않고 바로 나가니 채팅 반응 속도엔 영향
-// 없고, 프로그램이 갑자기 꺼져도 최근 몇 초치 사용 횟수만 유실될 뿐 명령어 자체나 다른
-// 데이터는 전혀 영향받지 않아요.
+// 사용 횟수(uses) 증가는 메모리에 바로 반영, 파일 저장은 디바운스로 모아서 처리.
+// 응답 자체는 이 저장을 기다리지 않음.
 const USES_FLUSH_DELAY_MS = 2000;
 let usesFlushTimer = null;
 
@@ -123,12 +117,11 @@ function incrementUses(name) {
       usesFlushTimer = null;
       save();
     }, USES_FLUSH_DELAY_MS);
-    if (usesFlushTimer.unref) usesFlushTimer.unref(); // 이 타이머 때문에 프로세스 종료가 막히지 않도록
+    if (usesFlushTimer.unref) usesFlushTimer.unref();
   }
 }
 
-// 프로그램을 종료하기 직전에 불러서, 위 디바운스 때문에 아직 디스크에 안 쓰인 최근 사용
-// 횟수가 있으면 그대로 유실되지 않게 즉시 저장함.
+// 디바운스 대기 중인 저장을 즉시 실행 (종료 직전 호출)
 function flush() {
   if (usesFlushTimer) {
     clearTimeout(usesFlushTimer);
