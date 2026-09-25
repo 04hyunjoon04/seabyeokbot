@@ -76,6 +76,8 @@ const config = {
   webPort,
   // OAuth 콜백 주소. 관리 페이지 서버가 127.0.0.1에서만 열려있어 loopback 주소로 등록.
   redirectUri: process.env.REDIRECT_URI || `http://localhost:${webPort}/callback`,
+  // 사용자가 직접 저장한 적이 있는지 여부. 관리 페이지에는 이 값이 true일 때만 위 redirectUri를 채워 보여줌
+  redirectUriExplicit: !!process.env.REDIRECT_URI,
 
   envFilePath: envPath,
   dataDir,
@@ -84,6 +86,7 @@ const config = {
   systemCommandOverridesFilePath: path.join(dataDir, "systemCommandOverrides.json"),
   officialAuthFilePath: path.join(dataDir, "officialAuth.json"),
   attendanceFilePath: path.join(dataDir, "attendance.json"),
+  rouletteFilePath: path.join(dataDir, "roulette.json"),
 };
 
 module.exports = config;

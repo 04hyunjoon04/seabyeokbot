@@ -79,18 +79,19 @@
   button.primary:hover { background: var(--accent-dark); }
   button.danger {
     background: var(--danger); color: white; border: none;
-    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;
   }
   button.danger:hover { background: var(--danger-dark); }
   button.ghost {
     background: white; border: 1px solid var(--border); color: var(--text);
-    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap;
   }
 
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
   thead { background: #fafafd; }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
   th { color: var(--muted); font-weight: 600; }
+  th.col-center, td.col-center { text-align: center; }
   tr:last-child td { border-bottom: none; }
   .muted { color: var(--muted); }
   .badge {
@@ -113,6 +114,8 @@
     width: 64px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
     font-size: 13px; font-family: inherit; text-align: right;
   }
+  .cooldown-cell { white-space: nowrap; }
+  .system-desc-cell { max-width: 260px; }
 
   .switch { position: relative; display: inline-block; width: 38px; height: 21px; }
   .switch input { opacity: 0; width: 0; height: 0; }
@@ -126,14 +129,17 @@
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(20,20,30,0.35);
     display: flex; align-items: center; justify-content: center; z-index: 50;
+    padding: 24px; box-sizing: border-box; overflow-y: auto;
   }
   .modal {
     background: white; border-radius: 10px; padding: 24px; width: 420px; max-width: 90vw;
+    max-height: calc(100vh - 48px); overflow-y: auto; overflow-x: hidden;
     box-shadow: 0 12px 32px rgba(0,0,0,0.18);
   }
+  .modal.modal-lg { width: 640px; }
   .modal h2 { margin: 0 0 16px; font-size: 16px; }
   .field { margin-bottom: 14px; }
-  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
   .field input[type="text"], .field input[type="password"], .field textarea, .field select {
     width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit;
   }
@@ -143,6 +149,19 @@
   .field-row .field { flex: 1; min-width: 0; }
   .field-row .field.grow { flex: 2.2; }
   .field-row .field.narrow { flex: 0 0 64px; }
+  .option-row-list { margin-bottom: 8px; }
+  .option-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .option-row input[type="text"].option-text-input { flex: 1; }
+  .option-row input[type="text"].option-weight-input { flex: 0 0 64px; text-align: right; }
+  .option-row .option-weight-wrap { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+  .option-row .option-weight-wrap span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .option-row .option-lock-wrap {
+    display: flex; align-items: center; justify-content: center; gap: 4px; flex: 1;
+    font-size: 11px; color: var(--muted); white-space: nowrap; cursor: pointer;
+  }
+  .option-row button.remove-option { flex: 0 0 auto; padding: 6px 10px; }
+  .toggle-row { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+  .toggle-row .toggle-label { justify-content: space-between; width: 100%; }
   .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
   .modal-actions button { flex: 1; padding: 10px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; }
   .modal-actions .cancel { background: #f0f0f4; }
@@ -166,7 +185,7 @@
   }
   .info-tip:hover { background: #d5d8e0; }
   .info-tip .info-tip-bubble { display: none; }
-  .info-tip:hover .info-tip-bubble { display: block; }
+  .info-tip.tip-active .info-tip-bubble { display: block; }
   .info-tip-bubble {
     position: absolute; bottom: 135%; left: 50%; transform: translateX(-50%);
     background: #1f2430; color: white; padding: 8px 10px; border-radius: 6px;
@@ -174,8 +193,12 @@
     width: 230px; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.18); cursor: default;
   }
   .info-tip-bubble::after {
-    content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    content: ""; position: absolute; top: 100%; left: var(--arrow-left, 50%); transform: translateX(-50%);
     border: 5px solid transparent; border-top-color: #1f2430;
+  }
+  .info-tip-bubble.flip-down { bottom: auto; top: 135%; }
+  .info-tip-bubble.flip-down::after {
+    top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: #1f2430;
   }
   .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #d5d7de; }
   .status-dot.ok { background: var(--ok); }
@@ -226,6 +249,7 @@
   <button class="nav-item" data-page="system">시스템 명령어</button>
   <button class="nav-item" data-page="banwords">금칙어</button>
   <button class="nav-item" data-page="attendance">출석체크</button>
+  <button class="nav-item" data-page="roulette">룰렛</button>
 </aside>
 
 <main>
@@ -235,7 +259,7 @@
     <div class="page-sub">채팅에서 <code>!추가</code>로 만든 명령어도 여기서 같이 관리돼요.</div>
     <div class="toolbar"><button class="primary" onclick="openCommandModal()">+ 명령어 추가</button></div>
     <table>
-      <thead><tr><th>명령어</th><th>응답</th><th>필요 권한</th><th>쿨타임</th><th>사용 횟수</th><th>활성</th><th></th></tr></thead>
+      <thead><tr><th>명령어</th><th>응답</th><th class="col-center">필요 권한</th><th class="col-center">쿨타임</th><th class="col-center">활성</th><th></th></tr></thead>
       <tbody id="commandsBody"></tbody>
     </table>
   </section>
@@ -243,9 +267,9 @@
   <!-- 시스템 명령어 -->
   <section id="page-system" style="display:none">
     <div class="page-title">시스템 명령어</div>
-    <div class="page-sub">봇에 내장된 명령어예요. 여기서는 삭제·수정할 수 없어요.</div>
+    <div class="page-sub">봇에 내장된 명령어예요. 이름·삭제는 불가능하고, 핑/업타임/명령어는 응답 문구만 편집 버튼으로 수정할 수 있어요.</div>
     <table>
-      <thead><tr><th>명령어</th><th>설명</th><th>필요 권한</th><th>쿨타임</th><th>활성</th></tr></thead>
+      <thead><tr><th>명령어</th><th>설명</th><th class="col-center">필요 권한</th><th class="col-center">쿨타임</th><th class="col-center">활성</th><th></th></tr></thead>
       <tbody id="systemBody"></tbody>
     </table>
   </section>
@@ -256,7 +280,7 @@
     <div class="page-sub">매니저 이상은 검사 대상에서 제외돼요. 영구 차단(벤)은 치지직 공식 API에 없어 지원하지 않아요.</div>
     <div class="toolbar"><button class="primary" onclick="openBanwordModal()">+ 금칙어 추가</button></div>
     <table>
-      <thead><tr><th>금칙어</th><th>제재 방식</th><th>활성</th><th></th></tr></thead>
+      <thead><tr><th>금칙어</th><th>제재 방식</th><th class="col-center">활성</th><th></th></tr></thead>
       <tbody id="banwordsBody"></tbody>
     </table>
   </section>
@@ -267,10 +291,10 @@
       <div class="page-title">출석체크</div>
       <div class="page-title-controls">
         <label class="toggle-label">
-          <label class="switch">
+          <span class="switch">
             <input type="checkbox" id="attendanceEnabledToggle" onchange="toggleAttendanceFeature(this.checked)">
             <span class="slider"></span>
-          </label>
+          </span>
           출첵 기능
         </label>
         <div class="search-box">
@@ -284,6 +308,17 @@
     <table>
       <thead><tr><th></th><th>닉네임</th><th>유저 식별코드</th><th>연속 출석</th><th>총 출석</th><th>최장 출석</th><th></th></tr></thead>
       <tbody id="attendanceBody"></tbody>
+    </table>
+  </section>
+
+  <!-- 룰렛 -->
+  <section id="page-roulette" style="display:none">
+    <div class="page-title">룰렛</div>
+    <div class="page-sub">등록한 이름과 정확히 일치할 때만 반응해요. 후원 문구(! 없이) 또는 일반 명령어(! 포함) 중 하나로 반응 방식을 고를 수 있어요.</div>
+    <div class="toolbar"><button class="primary" onclick="openRouletteModal()">+ 룰렛 추가</button></div>
+    <table>
+      <thead><tr><th>이름</th><th>반응 방식</th><th>목록 개수</th><th class="col-center">쿨타임</th><th class="col-center">활성</th><th></th></tr></thead>
+      <tbody id="rouletteBody"></tbody>
     </table>
   </section>
 
@@ -335,6 +370,18 @@
     </div>
 
     <div class="card">
+      <h3>오버레이 (OBS 브라우저 소스)
+        <span class="info-tip">?<span class="info-tip-bubble">룰렛이 당첨될 때마다 방송 화면에 스핀 애니메이션을 표시하는 기능이에요. 소리는 나오지 않아요. 회전 휠/슬롯머신 스타일은 각 룰렛을 추가·편집할 때 룰렛별로 골라요.</span></span>
+      </h3>
+      <div class="field"><label>브라우저 소스 URL</label><input class="token-value" type="text" id="overlayUrlValue" readonly /></div>
+      <button class="ghost" onclick="copyOverlayUrl()">주소 복사</button>
+      <div class="hint">OBS 기준: 소스 추가 → 브라우저 → 위 주소 입력 → 너비 400, 높이 500 정도로 두면 잘 보여요. 배경은 투명하게 나와요. 주소의 포트는 위 Redirect URI와 같이 움직여요, 바꾸려면 Redirect URI를 수정해주세요.</div>
+
+      <div style="margin-top:14px;"><button class="ghost" onclick="testOverlaySpin()">테스트 스핀 실행</button></div>
+      <div class="hint">방송 화면(오버레이 페이지)을 열어둔 상태에서 눌러보면 등록된 룰렛 중 하나가 무작위로 재생돼요.</div>
+    </div>
+
+    <div class="card">
       <h3>봇 연결 상태
         <span class="info-tip">?<span class="info-tip-bubble">봇이 지금 실제로 치지직 채팅 서버에 연결돼서 채팅을 주고받을 수 있는 상태인지 보여줘요. 빨간불이면 위의 로그인/연동을 먼저 확인해보세요.</span></span>
       </h3>
@@ -345,13 +392,25 @@
       </div>
       <div class="hint">"로그 확인"을 누르면 새 창이 뜨고, 그 시점부터의 채팅/연결 로그가 실시간으로 쌓여요. 채팅이 연결됐는데도 반응이 없으면 다른 사람 채팅이 [chat]으로 찍히는지 확인해보세요.</div>
     </div>
+
+    <div class="card">
+      <h3>데이터 백업
+        <span class="info-tip">?<span class="info-tip-bubble">유저 명령어, 금칙어, 시스템 명령어 설정, 출석 기록, 룰렛 데이터를 파일 하나로 저장하거나 불러올 수 있어요. 치지직 인가 토큰은 유출 위험이 있어 백업에 포함되지 않아요.</span></span>
+      </h3>
+      <div style="display:flex; gap:8px;">
+        <button class="primary" onclick="exportBackup()">백업 파일로 저장</button>
+        <button class="ghost" onclick="importBackup()">백업 파일 불러오기</button>
+      </div>
+      <div class="hint">저장 버튼을 누르면 원하는 위치를 직접 골라 파일로 저장돼요. 불러오기를 하면 현재 저장된 유저 명령어·금칙어·출석 기록·룰렛 데이터가 백업 파일 내용으로 전부 덮어써지니, 컴퓨터를 옮기거나 재설치하기 전에 미리 저장해두는 걸 추천해요.</div>
+      <div class="hint" id="backupResultHint"></div>
+    </div>
   </section>
 </main>
 
 <div id="toast" class="toast"></div>
 
 <script>
-const state = { commands: [], system: [], banwords: [], attendance: [] };
+const state = { commands: [], system: [], banwords: [], attendance: [], roulette: [] };
 let tokenVisible = false;
 let tokenValues = null;
 
@@ -361,6 +420,68 @@ function toast(msg) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2200);
 }
+
+// 스크롤/모달 등 내용을 잘라내는 가장 가까운 조상 요소를 찾음. 없으면 문서 전체(html) 반환
+function findClippingAncestor(el) {
+  let node = el.parentElement;
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (/(auto|hidden|scroll|clip)/.test(style.overflow + style.overflowX + style.overflowY)) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return document.documentElement;
+}
+
+// 물음표(?) 도움말 풍선이 화면이나 스크롤 영역 밖으로 잘리지 않도록 위치를 보정.
+// 새로 추가되는 .info-tip 아이콘에도 별도 설정 없이 자동 적용됨
+function positionInfoTipBubble(icon) {
+  const bubble = icon.querySelector('.info-tip-bubble');
+  if (!bubble) return;
+  bubble.classList.remove('flip-down');
+  bubble.style.transform = 'translateX(-50%)';
+  bubble.style.removeProperty('--arrow-left');
+
+  const margin = 10;
+  const clipEl = findClippingAncestor(icon);
+  const clipRect = clipEl === document.documentElement
+    ? { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight }
+    : clipEl.getBoundingClientRect();
+  const boundLeft = Math.max(margin, clipRect.left + margin);
+  const boundRight = Math.min(window.innerWidth - margin, clipRect.right - margin);
+  const boundTop = Math.max(margin, clipRect.top + margin);
+
+  let bubbleRect = bubble.getBoundingClientRect();
+  if (bubbleRect.top < boundTop) {
+    bubble.classList.add('flip-down');
+    bubbleRect = bubble.getBoundingClientRect();
+  }
+
+  let shift = 0;
+  if (bubbleRect.left < boundLeft) shift = boundLeft - bubbleRect.left;
+  else if (bubbleRect.right > boundRight) shift = boundRight - bubbleRect.right;
+
+  if (shift !== 0) {
+    bubble.style.transform = `translateX(calc(-50% + ${shift}px))`;
+    const iconRect = icon.getBoundingClientRect();
+    const iconCenterX = iconRect.left + iconRect.width / 2;
+    const arrowLeftPx = iconCenterX - (bubbleRect.left + shift);
+    bubble.style.setProperty('--arrow-left', `${arrowLeftPx}px`);
+  }
+}
+
+document.addEventListener('mouseover', (e) => {
+  const icon = e.target.closest('.info-tip');
+  if (!icon || icon.classList.contains('tip-active')) return;
+  icon.classList.add('tip-active');
+  positionInfoTipBubble(icon);
+});
+document.addEventListener('mouseout', (e) => {
+  const icon = e.target.closest('.info-tip');
+  if (!icon || icon.contains(e.relatedTarget)) return;
+  icon.classList.remove('tip-active');
+});
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (ch) => ({
@@ -389,7 +510,7 @@ function permBadge(p) {
 }
 
 // ---- 네비게이션 ----
-const PAGES = ['commands', 'system', 'banwords', 'attendance', 'account'];
+const PAGES = ['commands', 'system', 'banwords', 'attendance', 'roulette', 'account'];
 
 function showPage(pageName) {
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
@@ -400,11 +521,12 @@ function showPage(pageName) {
   });
 
   // 탭을 열 때 한 번 최신 데이터를 가져옴. 이후 변경 반영은 실시간 이벤트(SSE)가 처리.
-  if (pageName === 'account') loadAccountPage(true);
+  if (pageName === 'account') { loadAccountPage(true); loadOverlayCard(); }
   else if (pageName === 'commands') loadCommands();
   else if (pageName === 'system') loadSystemCommands();
   else if (pageName === 'banwords') loadBanwords();
   else if (pageName === 'attendance') loadAttendance();
+  else if (pageName === 'roulette') loadRoulette();
 }
 
 // ---- 실시간 변경 알림 (SSE) ----
@@ -414,6 +536,7 @@ const SSE_HANDLERS = {
   'system-commands': () => loadSystemCommands(),
   'banwords': () => loadBanwords(),
   'attendance': () => loadAttendance(),
+  'roulette': () => loadRoulette(),
   'bot-status': () => loadAccountPage(false),
   'oauth': () => loadAccountPage(false),
 };
@@ -449,17 +572,16 @@ async function loadCommands() {
   state.commands = await api('GET', '/api/commands');
   const body = document.getElementById('commandsBody');
   if (!state.commands.length) {
-    body.innerHTML = `<tr><td colspan="7" class="empty">아직 등록된 명령어가 없어요. 채팅에서 !추가로 만들거나 위 버튼을 눌러보세요.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="empty">아직 등록된 명령어가 없어요. 채팅에서 !추가로 만들거나 위 버튼을 눌러보세요.</td></tr>`;
     return;
   }
   body.innerHTML = state.commands.map((c) => `
     <tr>
-      <td><strong>!${escapeHtml(c.name)}</strong></td>
+      <td><strong>${c.noPrefix ? escapeHtml(c.name) : `!${escapeHtml(c.name)}`}</strong>${c.noPrefix ? ' <span class="muted">(! 없이 반응)</span>' : ''}</td>
       <td class="muted">${(c.responses || []).map(escapeHtml).join(' || ')}</td>
-      <td>${permBadge(c.permission)}</td>
-      <td>${c.cooldownSec}초 / 유저 ${c.userCooldownSec}초</td>
-      <td>${c.uses || 0}</td>
-      <td>
+      <td class="col-center">${permBadge(c.permission)}</td>
+      <td class="col-center">${c.cooldownSec}초 / 유저 ${c.userCooldownSec}초</td>
+      <td class="col-center">
         <label class="switch">
           <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleCommand('${encodeForHandler(c.name)}', this.checked)">
           <span class="slider"></span>
@@ -499,14 +621,24 @@ function openCommandModal(existing) {
   const permission = isEdit ? existing.permission : 'everyone';
   const cooldownSec = isEdit ? existing.cooldownSec : 3;
   const userCooldownSec = isEdit ? existing.userCooldownSec : 3;
+  const noPrefix = isEdit ? !!existing.noPrefix : false;
 
   buildModal(`
-    <h2>${isEdit ? `명령어 편집 (!${escapeHtml(existing.name)})` : '명령어 추가'}</h2>
+    <h2>${isEdit ? `명령어 편집 (${existing.noPrefix ? '' : '!'}${escapeHtml(existing.name)})` : '명령어 추가'}</h2>
     <div class="field">
       <label>명령어 이름 (! 없이)</label>
       <input type="text" id="cmdName" placeholder="예: 인사" value="${isEdit ? escapeHtml(existing.name) : ''}" ${isEdit ? 'disabled' : ''} />
     </div>
     <div class="field"><label>응답 메시지 (||로 구분하면 랜덤 응답, $nick으로 닉네임 치환)</label><textarea id="cmdResponse" placeholder="안녕하세요! 반갑습니다 :>">${escapeHtml(responseText)}</textarea></div>
+    <div class="field">
+      <label class="toggle-label">
+        <span>! 없이 반응 (채팅이 명령어 이름과 정확히 일치할 때만)</span>
+        <span class="switch">
+          <input type="checkbox" id="cmdNoPrefix" ${noPrefix ? 'checked' : ''}>
+          <span class="slider"></span>
+        </span>
+      </label>
+    </div>
     <div class="field-row">
       <div class="field grow"><label>필요 권한</label>
         <select id="cmdPermission">
@@ -532,14 +664,15 @@ async function submitCommand(editingEncodedName) {
   const permission = document.getElementById('cmdPermission').value;
   const cooldownSec = document.getElementById('cmdCooldown').value;
   const userCooldownSec = document.getElementById('cmdUserCooldown').value;
+  const noPrefix = document.getElementById('cmdNoPrefix').checked;
   try {
     if (editingName) {
       await api('PUT', `/api/commands/${encodeURIComponent(editingName)}`, {
-        response, permission, cooldownSec, userCooldownSec,
+        response, permission, cooldownSec, userCooldownSec, noPrefix,
       });
       toast('명령어를 저장했어요.');
     } else {
-      await api('POST', '/api/commands', { name, response, permission, cooldownSec, userCooldownSec });
+      await api('POST', '/api/commands', { name, response, permission, cooldownSec, userCooldownSec, noPrefix });
       toast('명령어를 추가했어요.');
     }
     closeModal();
@@ -553,15 +686,15 @@ async function loadSystemCommands() {
   document.getElementById('systemBody').innerHTML = state.system.map((c) => `
     <tr>
       <td><strong>${c.name}</strong></td>
-      <td class="muted">${c.description}</td>
-      <td>
+      <td class="muted system-desc-cell">${c.description}</td>
+      <td class="col-center">
         <select class="inline-select ${c.permission}" onchange="updateSystemPermission('${c.key}', this.value, this)">
           <option value="everyone" ${c.permission === 'everyone' ? 'selected' : ''}>시청자(누구나)</option>
           <option value="manager" ${c.permission === 'manager' ? 'selected' : ''}>매니저 이상</option>
           <option value="streamer" ${c.permission === 'streamer' ? 'selected' : ''}>스트리머만</option>
         </select>
       </td>
-      <td>
+      <td class="col-center cooldown-cell">
         <input
           class="cooldown-input" type="number" min="0" step="1"
           value="${c.cooldownSec}"
@@ -569,14 +702,38 @@ async function loadSystemCommands() {
           onkeydown="if (event.key === 'Enter') this.blur()"
         />초
       </td>
-      <td>
+      <td class="col-center">
         <label class="switch">
           <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleSystemCommand('${c.key}', this.checked)">
           <span class="slider"></span>
         </label>
       </td>
+      <td>${c.editable ? `<button class="ghost" onclick='openSystemResponseModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>편집</button>` : ''}</td>
     </tr>
   `).join('');
+}
+
+function openSystemResponseModal(cmd) {
+  buildModal(`
+    <h2>응답 문구 편집 (${escapeHtml(cmd.name)})</h2>
+    ${cmd.key === '업타임' ? '<div class="page-sub">{업타임} 자리에 경과 시간이 채워져요. (방송 중이 아니면 [방송중이 아님]으로 대체)</div>' : ''}
+    ${cmd.key === '명령어' ? '<div class="page-sub">{목록} 자리에 사용 가능한 명령어 목록이 채워져요.</div>' : ''}
+    <div class="field"><label>응답 메시지</label><textarea id="systemResponseText">${escapeHtml(cmd.response)}</textarea></div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">취소</button>
+      <button class="confirm" onclick="submitSystemResponse('${cmd.key}')">저장</button>
+    </div>
+  `);
+}
+
+async function submitSystemResponse(key) {
+  const response = document.getElementById('systemResponseText').value.trim();
+  try {
+    await api('PATCH', `/api/system-commands/${encodeURIComponent(key)}/response`, { response });
+    toast('응답 문구를 저장했어요.');
+    closeModal();
+    loadSystemCommands();
+  } catch (err) { toast('오류: ' + err.message); }
 }
 
 async function toggleSystemCommand(key, enabled) {
@@ -616,7 +773,7 @@ async function loadBanwords() {
     <tr>
       <td><strong>${escapeHtml(w.word)}</strong></td>
       <td>${w.action === 'timeout' ? '임시 제한' : '메시지 블라인드(삭제)'}</td>
-      <td>
+      <td class="col-center">
         <label class="switch">
           <input type="checkbox" ${w.enabled ? 'checked' : ''} onchange="toggleBanword('${w.id}', this.checked)">
           <span class="slider"></span>
@@ -905,13 +1062,375 @@ async function toggleEditDate(dateStr) {
   } catch (err) { toast('오류: ' + err.message); }
 }
 
+// ---- 룰렛 ----
+async function loadRoulette() {
+  state.roulette = await api('GET', '/api/roulette');
+  const body = document.getElementById('rouletteBody');
+  if (!state.roulette.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">등록된 룰렛이 없어요. 위 버튼으로 추가해보세요.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.roulette.map((r) => `
+    <tr>
+      <td><strong>${escapeHtml(r.name)}</strong></td>
+      <td>${r.mode === 'chat'
+        ? `<span class="badge everyone">!${escapeHtml(r.name)}</span>`
+        : `<span class="badge streamer">후원 문구${r.donationAmount != null ? ' · ' + r.donationAmount + '원' : ''}</span>`}</td>
+      <td class="muted">${(r.options || []).length}개 항목${r.allowChatAdd ? ' · 채팅추가 가능' : ''}</td>
+      <td class="col-center">${r.cooldownSec}초 / 유저 ${r.userCooldownSec}초</td>
+      <td class="col-center">
+        <label class="switch">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRoulette('${r.id}', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </td>
+      <td>
+        <div style="display:flex; gap:6px;">
+          <button class="ghost" onclick='openRouletteModal(${JSON.stringify(r).replace(/'/g, "&#39;")})'>편집</button>
+          <button class="danger" onclick="deleteRoulette('${r.id}')">삭제</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function toggleRoulette(id, enabled) {
+  try {
+    await api('PATCH', `/api/roulette/${id}/enabled`, { enabled });
+    toast(enabled ? '룰렛을 켰어요.' : '룰렛을 껐어요.');
+  } catch (err) { toast('오류: ' + err.message); loadRoulette(); }
+}
+
+async function deleteRoulette(id) {
+  if (!confirm('이 룰렛을 삭제할까요?')) return;
+  try {
+    await api('DELETE', `/api/roulette/${id}`);
+    toast('삭제했어요.');
+    loadRoulette();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+const ROULETTE_NAME_EXAMPLE = '점메추';
+
+function rouletteModeHintText(isChatMode, name, donationAmount) {
+  const trimmed = (name || '').trim();
+  const isPlaceholder = !trimmed;
+  const label = trimmed || ROULETTE_NAME_EXAMPLE;
+  const prefix = isPlaceholder ? '예) ' : '';
+
+  if (isChatMode) {
+    return `채팅에서 ${prefix}!${label} 을 정확히 입력하면 반응해요.`;
+  }
+
+  const amount = (donationAmount || '').trim();
+  if (amount) {
+    return `${prefix}후원 메시지가 정확히 '${label}' 이고, 후원 금액도 정확히 ${amount}원일 때만 반응해요.`;
+  }
+  return `${prefix}후원 메시지가 정확히 '${label}' 와 같으면 금액과 상관없이 반응해요 (! 없이).`;
+}
+
+function updateRouletteHint() {
+  const toggle = document.getElementById('rouletteModeToggle');
+  const nameInput = document.getElementById('rouletteName');
+  const amountInput = document.getElementById('rouletteDonationAmount');
+  const amountField = document.getElementById('rouletteDonationAmountField');
+  const label = document.getElementById('rouletteModeLabel');
+  const hintBubble = document.getElementById('rouletteModeHintBubble');
+  const isChatMode = toggle.checked;
+  const name = nameInput ? nameInput.value.trim() : '';
+  const amount = amountInput ? amountInput.value.trim() : '';
+
+  label.textContent = isChatMode ? '일반 명령어로 반응' : '후원 문구로 반응';
+  if (amountField) amountField.style.display = isChatMode ? 'none' : '';
+  if (hintBubble) hintBubble.textContent = rouletteModeHintText(isChatMode, name, amount);
+}
+
+function updateRouletteSpinStyleLabel() {
+  const toggle = document.getElementById('rouletteSpinStyleToggle');
+  const label = document.getElementById('rouletteSpinStyleLabel');
+  if (!toggle || !label) return;
+  label.textContent = toggle.checked ? '슬롯머신' : '회전 휠';
+}
+
+// 확률 입력값을 소수점 2자리까지만 남기고 나머지는 잘라냄. 숫자·소수점 외 문자도 제거
+function sanitizeProbabilityInput(input) {
+  let value = input.value.replace(/[^0-9.]/g, '');
+  const firstDot = value.indexOf('.');
+  if (firstDot !== -1) {
+    value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, '');
+    const dotIndex = value.indexOf('.');
+    value = value.slice(0, dotIndex + 3);
+  }
+  if (value !== input.value) input.value = value;
+}
+
+// 룰렛 결과 항목 한 줄(문구 + 확률% + 확률 고정 + 삭제 버튼)의 HTML. 확률은 소수점 2자리까지 입력 가능
+function rouletteOptionRowHtml(text, probability, locked) {
+  const p = probability != null && probability !== '' ? probability : '';
+  return `
+    <div class="option-row">
+      <input type="text" class="option-text-input" placeholder="결과 문구" value="${escapeHtml(text || '')}" oninput="updateRouletteProbabilitySum()" />
+      <div class="option-weight-wrap">
+        <input
+          type="text" class="option-weight-input" placeholder="0.00" value="${escapeHtml(String(p))}"
+          oninput="sanitizeProbabilityInput(this); updateRouletteProbabilitySum()"
+        />
+        <span>%</span>
+      </div>
+      <label class="option-lock-wrap">
+        <span class="switch">
+          <input type="checkbox" class="option-lock-input" ${locked ? 'checked' : ''}>
+          <span class="slider"></span>
+        </span>
+        <span>확률 고정
+          <span class="info-tip">?<span class="info-tip-bubble">켜두면 !목록추가로 새 항목이 추가돼도 이 항목의 확률은 바뀌지 않고 그대로 유지돼요.</span></span>
+        </span>
+      </label>
+      <button type="button" class="danger remove-option" onclick="removeRouletteOptionRow(this)">삭제</button>
+    </div>
+  `;
+}
+
+function addRouletteOptionRow(text, probability, locked) {
+  const list = document.getElementById('rouletteOptionsList');
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', rouletteOptionRowHtml(text, probability, locked));
+  updateRouletteProbabilitySum();
+}
+
+// 양수 비율 배열을 합이 정확히 total이 되는 퍼센트 배열로 변환. rouletteStore.js의 동일 함수와 로직을 맞춤.
+// 최대 나머지(largest remainder) 방식으로 반올림 오차를 여러 항목에 고르게 나눠, 한 항목에만 몰리지 않도록 함
+function distributeRoulettePercentagesClient(weights, total) {
+  const totalWeight = weights.reduce((sum, w) => sum + (w > 0 ? w : 1), 0);
+  const totalCents = Math.round(total * 100);
+
+  const exactCents = weights.map((w) => {
+    const weight = w > 0 ? w : 1;
+    return (weight / totalWeight) * totalCents;
+  });
+  const cents = exactCents.map((c) => Math.floor(c));
+  const assignedCents = cents.reduce((sum, c) => sum + c, 0);
+  const remainderCents = totalCents - assignedCents;
+
+  const order = exactCents
+    .map((c, i) => ({ i, frac: c - Math.floor(c) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < remainderCents && k < order.length; k++) {
+    cents[order[k].i] += 1;
+  }
+
+  return cents.map((c) => Math.max(0, Math.round(c) / 100));
+}
+
+// "+ 항목 추가" 버튼 클릭 시 확률 고정이 아닌 기존 항목들과 새 항목을 남은 확률로 균등 재분배
+function addRouletteOptionRowFromButton() {
+  const list = document.getElementById('rouletteOptionsList');
+  if (!list) return;
+  const rows = Array.from(list.querySelectorAll('.option-row'));
+
+  let lockedTotal = 0;
+  const unlockedRows = [];
+  rows.forEach((row) => {
+    const locked = row.querySelector('.option-lock-input').checked;
+    const weightInput = row.querySelector('.option-weight-input');
+    const probability = Number(weightInput.value.trim());
+    if (locked) {
+      lockedTotal += Number.isFinite(probability) ? probability : 0;
+    } else {
+      unlockedRows.push(weightInput);
+    }
+  });
+  lockedTotal = Math.round(lockedTotal * 100) / 100;
+  const remaining = Math.max(0, Math.round((100 - lockedTotal) * 100) / 100);
+
+  const pcts = distributeRoulettePercentagesClient(new Array(unlockedRows.length + 1).fill(1), remaining);
+
+  unlockedRows.forEach((weightInput, i) => {
+    weightInput.value = String(pcts[i]);
+  });
+
+  addRouletteOptionRow('', pcts[pcts.length - 1], false);
+}
+
+// 결과 항목 삭제 시 확률 고정이 아닌 나머지 항목들에 남은 확률을 고르게 재분배
+function removeRouletteOptionRow(button) {
+  const list = document.getElementById('rouletteOptionsList');
+  const row = button.closest('.option-row');
+  if (!list || !row) return;
+  row.remove();
+
+  const rows = Array.from(list.querySelectorAll('.option-row'));
+  let lockedTotal = 0;
+  const unlockedRows = [];
+  rows.forEach((r) => {
+    const locked = r.querySelector('.option-lock-input').checked;
+    const weightInput = r.querySelector('.option-weight-input');
+    const probability = Number(weightInput.value.trim());
+    if (locked) {
+      lockedTotal += Number.isFinite(probability) ? probability : 0;
+    } else {
+      unlockedRows.push(weightInput);
+    }
+  });
+  lockedTotal = Math.round(lockedTotal * 100) / 100;
+  const remaining = Math.max(0, Math.round((100 - lockedTotal) * 100) / 100);
+
+  if (unlockedRows.length) {
+    const pcts = distributeRoulettePercentagesClient(new Array(unlockedRows.length).fill(1), remaining);
+    unlockedRows.forEach((weightInput, i) => { weightInput.value = String(pcts[i]); });
+  }
+
+  updateRouletteProbabilitySum();
+}
+
+// 결과 목록 아래 "합계: N%" 표시를 현재 입력값 기준으로 갱신. 100%에서 벗어나면 경고색 표시
+function updateRouletteProbabilitySum() {
+  const sumEl = document.getElementById('rouletteProbabilitySum');
+  if (!sumEl) return;
+  const rows = document.querySelectorAll('#rouletteOptionsList .option-row .option-weight-input');
+  let sum = 0;
+  rows.forEach((input) => {
+    const n = Number(input.value.trim());
+    if (Number.isFinite(n)) sum += n;
+  });
+  sum = Math.round(sum * 100) / 100;
+  const isOk = Math.abs(sum - 100) <= 0.05;
+  sumEl.textContent = `합계: ${sum}%${isOk ? '' : ' (100%가 되도록 맞춰주세요)'}`;
+  sumEl.style.color = isOk ? 'var(--ok)' : 'var(--danger)';
+}
+
+function openRouletteModal(existing) {
+  const isEdit = !!existing;
+  const isChatMode = isEdit ? existing.mode === 'chat' : true;
+  const options = isEdit ? (existing.options || []) : [];
+  const cooldownSec = isEdit ? existing.cooldownSec : 3;
+  const userCooldownSec = isEdit ? existing.userCooldownSec : 0;
+  const name = isEdit ? existing.name : '';
+  const donationAmount = isEdit && existing.donationAmount != null ? String(existing.donationAmount) : '';
+  const allowChatAdd = isEdit ? !!existing.allowChatAdd : false;
+  const spinStyle = isEdit ? (existing.spinStyle || 'wheel') : 'wheel';
+  const isSlotStyle = spinStyle === 'slot';
+
+  buildModal(`
+    <h2>${isEdit ? `룰렛 편집 (${escapeHtml(existing.name)})` : '룰렛 추가'}</h2>
+    <div class="field">
+      <label>이름 (! 없이, 정확히 일치할 때만 반응)</label>
+      <input type="text" id="rouletteName" placeholder="예: 점메추" value="${escapeHtml(name)}" oninput="updateRouletteHint()" />
+    </div>
+    <div class="field">
+      <div class="toggle-row">
+        <label class="toggle-label">
+          <span>
+            <span id="rouletteModeLabel">${isChatMode ? '일반 명령어로 반응' : '후원 문구로 반응'}</span>
+            <span class="info-tip">?<span class="info-tip-bubble" id="rouletteModeHintBubble">${rouletteModeHintText(isChatMode, name, donationAmount)}</span></span>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="rouletteModeToggle" ${isChatMode ? 'checked' : ''} onchange="updateRouletteHint()">
+            <span class="slider"></span>
+          </span>
+        </label>
+        <label class="toggle-label">
+          <span id="rouletteSpinStyleLabel">${isSlotStyle ? '슬롯머신' : '회전 휠'}</span>
+          <span class="switch">
+            <input type="checkbox" id="rouletteSpinStyleToggle" ${isSlotStyle ? 'checked' : ''} onchange="updateRouletteSpinStyleLabel()">
+            <span class="slider"></span>
+          </span>
+        </label>
+        <label class="toggle-label">
+          <span>추가 명령어 사용 가능
+            <span class="info-tip">?<span class="info-tip-bubble">켜두면 채팅에서 !목록추가 !룰렛이름 추가할 문구 로 결과 항목을 추가할 수 있어요. 추가되면 전체 항목이 같은 확률로 다시 나뉘어요.</span></span>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="rouletteAllowChatAdd" ${allowChatAdd ? 'checked' : ''}>
+            <span class="slider"></span>
+          </span>
+        </label>
+      </div>
+    </div>
+    <div class="field" id="rouletteDonationAmountField" style="${isChatMode ? 'display:none;' : ''}">
+      <label>후원 금액 (원 단위, 비워두면 금액 상관없이 반응)</label>
+      <input type="text" id="rouletteDonationAmount" placeholder="비워두면 금액 무관, 예: 5000" value="${escapeHtml(donationAmount)}" oninput="updateRouletteHint()" />
+    </div>
+    <div class="field">
+      <label>결과 목록 (그중 하나를 확률(%)대로 무작위 응답, 소수점 2자리까지. $nick으로 닉네임 치환)</label>
+      <div class="option-row-list" id="rouletteOptionsList"></div>
+      <button type="button" class="ghost" onclick="addRouletteOptionRowFromButton()">+ 항목 추가</button>
+      <div class="hint" id="rouletteProbabilitySum" style="margin-top:8px;"></div>
+    </div>
+    <div class="field">
+      <label>쿨타임
+        <span class="info-tip">?<span class="info-tip-bubble">전체(초): 이 룰렛이 한 번 반응하면 누가 다시 사용하든 이 시간 동안은 반응하지 않아요. 유저(초): 같은 사람이 다시 사용하려면 이 시간만큼 기다려야 해요. 다른 사람은 영향받지 않고 바로 사용할 수 있어요.</span></span>
+      </label>
+      <div class="field-row">
+        <div class="field narrow">
+          <label style="margin-bottom:3px;">전체</label>
+          <input type="text" id="rouletteCooldown" value="${cooldownSec}" />
+        </div>
+        <div class="field narrow">
+          <label style="margin-bottom:3px;">유저</label>
+          <input type="text" id="rouletteUserCooldown" value="${userCooldownSec}" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" onclick="closeModal()">취소</button>
+      <button class="confirm" onclick="submitRoulette(${isEdit ? `'${existing.id}'` : 'null'})">${isEdit ? '저장' : '추가'}</button>
+    </div>
+  `, 'modal-lg');
+
+  if (options.length) {
+    options.forEach((o) => addRouletteOptionRow(o.text, o.probability, o.locked));
+  } else {
+    addRouletteOptionRow('', 50);
+    addRouletteOptionRow('', 50);
+  }
+}
+
+async function submitRoulette(id) {
+  const name = document.getElementById('rouletteName').value.trim();
+  const mode = document.getElementById('rouletteModeToggle').checked ? 'chat' : 'donation';
+  const allowChatAdd = document.getElementById('rouletteAllowChatAdd').checked;
+  const spinStyle = document.getElementById('rouletteSpinStyleToggle').checked ? 'slot' : 'wheel';
+  const options = Array.from(document.querySelectorAll('#rouletteOptionsList .option-row')).map((row) => {
+    const text = row.querySelector('.option-text-input').value.trim();
+    const probRaw = row.querySelector('.option-weight-input').value.trim();
+    const probNum = Number(probRaw);
+    const probability = probRaw !== '' && Number.isFinite(probNum) && probNum >= 0
+      ? Math.min(100, Math.round(probNum * 100) / 100)
+      : 0;
+    const locked = row.querySelector('.option-lock-input').checked;
+    return { text, probability, locked };
+  }).filter((o) => o.text);
+  const cooldownSec = document.getElementById('rouletteCooldown').value;
+  const userCooldownSec = document.getElementById('rouletteUserCooldown').value;
+  const donationAmountRaw = document.getElementById('rouletteDonationAmount').value.trim();
+  const donationAmount = mode === 'donation' && donationAmountRaw !== '' ? donationAmountRaw : null;
+  if (!options.length) return toast('결과 항목을 한 개 이상 입력해주세요.');
+  const probabilitySum = Math.round(options.reduce((sum, o) => sum + o.probability, 0) * 100) / 100;
+  if (Math.abs(probabilitySum - 100) > 0.05) {
+    return toast(`결과 항목의 확률 합이 100%가 되도록 맞춰주세요. (현재 합계: ${probabilitySum}%)`);
+  }
+  try {
+    const payload = { name, mode, options, cooldownSec, userCooldownSec, donationAmount, allowChatAdd, spinStyle };
+    if (id) {
+      await api('PUT', `/api/roulette/${id}`, payload);
+      toast('룰렛을 저장했어요.');
+    } else {
+      await api('POST', '/api/roulette', payload);
+      toast('룰렛을 추가했어요.');
+    }
+    closeModal();
+    loadRoulette();
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
 // ---- 모달 공통 ----
-function buildModal(innerHtml) {
+function buildModal(innerHtml, extraClass) {
   closeModal();
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.id = 'modalBackdrop';
-  backdrop.innerHTML = `<div class="modal">${innerHtml}</div>`;
+  backdrop.innerHTML = `<div class="modal${extraClass ? ' ' + extraClass : ''}">${innerHtml}</div>`;
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
   document.body.appendChild(backdrop);
   return backdrop;
@@ -1067,6 +1586,51 @@ async function restartBotSession() {
   } catch (err) { toast('오류: ' + err.message); }
 }
 
+// ---- 데이터 백업 ----
+async function exportBackup() {
+  const hint = document.getElementById('backupResultHint');
+  try {
+    const result = await api('POST', '/api/backup/export', {});
+    if (!result.saved) return;
+    toast('백업 파일을 저장했어요.');
+    if (hint) hint.textContent = '마지막 저장 위치: ' + result.path;
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+async function importBackup() {
+  if (!confirm('백업 파일을 불러오면 현재 저장된 유저 명령어·금칙어·출석 기록·룰렛 데이터가 전부 덮어써져요. 계속할까요?')) return;
+  const hint = document.getElementById('backupResultHint');
+  try {
+    const result = await api('POST', '/api/backup/import', {});
+    if (!result.restored) return;
+    toast('백업 파일을 불러왔어요.');
+    if (hint) hint.textContent = '마지막 불러오기: ' + result.path;
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
+// ---- 오버레이 ----
+function loadOverlayCard() {
+  const urlField = document.getElementById('overlayUrlValue');
+  if (urlField) urlField.value = location.origin + '/overlay.html';
+}
+
+function copyOverlayUrl() {
+  const urlField = document.getElementById('overlayUrlValue');
+  if (!urlField) return;
+  urlField.select();
+  navigator.clipboard.writeText(urlField.value).then(
+    () => toast('주소를 복사했어요.'),
+    () => document.execCommand('copy')
+  );
+}
+
+async function testOverlaySpin() {
+  try {
+    const result = await api('POST', '/api/overlay/test-spin', {});
+    toast('테스트 스핀 실행: ' + result.result);
+  } catch (err) { toast('오류: ' + err.message); }
+}
+
 // ---- 초기 로드 ----
 async function loadStatus() {
   try {
@@ -1085,6 +1649,7 @@ loadCommands();
 loadSystemCommands();
 loadBanwords();
 loadAttendance();
+loadRoulette();
 connectEventStream();
 </script>
 </body>

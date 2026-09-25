@@ -12,13 +12,25 @@ const { botLog, kst } = require("../utils");
 const commandStore = require("../commandStore");
 const banwordStore = require("../banwordStore");
 const attendanceStore = require("../attendanceStore");
+const rouletteStore = require("../rouletteStore");
 const systemCommandStore = require("../systemCommandStore");
-const { getSystemCommands } = require("./systemCommands");
+const backup = require("../backup");
+const { getSystemCommands, isEditable: isSystemCommandEditable } = require("./systemCommands");
 const { RESERVED_NAMES } = require("../commands");
 const eventBus = require("../eventBus");
 
-// 관리 페이지로 실시간 변경 알림을 보낼 때 쓰는 이벤트 종류
-const SSE_EVENTS = ["commands", "system-commands", "banwords", "attendance", "bot-status", "oauth"];
+// 관리 페이지/오버레이로 실시간 변경 알림을 보낼 때 쓰는 이벤트 종류.
+// roulette-spin은 룰렛이 실제로 당첨될 때마다 결과와 함께 오버레이로 전달되는 1회성 이벤트.
+const SSE_EVENTS = [
+  "commands",
+  "system-commands",
+  "banwords",
+  "attendance",
+  "roulette",
+  "roulette-spin",
+  "bot-status",
+  "oauth",
+];
 const SSE_HEARTBEAT_MS = 25_000;
 
 const DEFAULT_COOLDOWN_SEC = 3;
@@ -35,6 +47,95 @@ function validateAttendanceDate(value) {
 function sanitizeCooldown(value, fallback = DEFAULT_COOLDOWN_SEC) {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+// 룰렛 이름에서 앞의 명령어 접두사(!)를 떼어내고 앞뒤 공백 제거
+function normalizeRouletteName(name) {
+  const trimmed = String(name || "").trim();
+  return trimmed.startsWith(config.commandPrefix) ? trimmed.slice(config.commandPrefix.length) : trimmed;
+}
+
+// 룰렛 결과 목록: [{ text, probability, locked }] 형태로 정리하고 빈 문구 제거. 하나도 없으면 null.
+// probability는 0~100 사이 숫자로 보정하고 소수점 2자리까지만 허용. 값이 없거나 잘못되면 0으로 처리.
+// locked가 true인 항목은 !목록추가로 새 항목이 들어와도 확률이 재분배되지 않고 고정됨
+function sanitizeRouletteOptions(options) {
+  if (!Array.isArray(options)) return null;
+  const cleaned = options
+    .map((item) => {
+      if (item && typeof item === "object") {
+        const text = String(item.text ?? "").trim();
+        if (!text) return null;
+        let probability = Number(item.probability);
+        if (!Number.isFinite(probability) || probability < 0) probability = 0;
+        probability = Math.min(100, Math.round(probability * 100) / 100);
+        return { text, probability, locked: !!item.locked };
+      }
+      const text = String(item ?? "").trim();
+      return text ? { text, probability: 0, locked: false } : null;
+    })
+    .filter(Boolean);
+  return cleaned.length ? cleaned : null;
+}
+
+// 결과 항목들의 확률 합이 100%에 충분히 가까운지 확인 (반올림 오차 허용 오차 0.05)
+function probabilitiesSumToHundred(options) {
+  const sum = options.reduce((acc, o) => acc + (Number(o.probability) || 0), 0);
+  return Math.abs(sum - 100) <= 0.05;
+}
+
+// 후원 금액 필터 값 검증. 비어있으면 금액 상관없이 반응(null), 숫자면 0 이상 정수만 허용
+function sanitizeDonationAmount(value) {
+  if (value === undefined || value === null) return { ok: true, value: null };
+  const trimmed = String(value).trim();
+  if (trimmed === "") return { ok: true, value: null };
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, value: null };
+  return { ok: true, value: Math.round(n) };
+}
+
+// 룰렛이 일반 명령어 모드일 때만 기본 명령어/커스텀 명령어 이름과의 충돌 검사
+function checkRouletteChatNameConflict(name, excludeId) {
+  if (RESERVED_NAMES.has(name)) return `'${name}'는 기본 제공 명령어 이름이라 사용할 수 없어요.`;
+  if (commandStore.has(name)) return `'${name}'는 이미 등록된 유저 명령어예요.`;
+  if (rouletteStore.hasNameConflict("chat", name, excludeId)) return `'${name}' 룰렛이 이미 있어요.`;
+  return null;
+}
+
+// 룰렛 추가/수정 요청 공통 검증. 문제가 있으면 { error: "메시지" }, 통과하면 rouletteStore.add/update에
+// 바로 넘길 수 있는 필드들을 반환. excludeId는 수정 시 자기 자신을 이름 충돌 검사에서 제외하기 위함.
+function validateRouletteInput(body, excludeId) {
+  const { name, mode, options, cooldownSec, userCooldownSec, donationAmount, allowChatAdd, spinStyle } = body || {};
+
+  const key = normalizeRouletteName(name);
+  if (!key) return { error: "이름을 입력해주세요." };
+
+  const cleanOptions = sanitizeRouletteOptions(options);
+  if (!cleanOptions) return { error: "결과를 한 줄 이상 입력해주세요." };
+  if (!probabilitiesSumToHundred(cleanOptions)) {
+    return { error: "결과 항목의 확률 합이 100%가 되도록 맞춰주세요." };
+  }
+
+  const rouletteMode = mode === "donation" ? "donation" : "chat";
+  if (rouletteMode === "chat") {
+    const conflict = checkRouletteChatNameConflict(key, excludeId);
+    if (conflict) return { error: conflict };
+  } else if (rouletteStore.hasNameConflict("donation", key, excludeId)) {
+    return { error: `'${key}' 룰렛이 이미 있어요.` };
+  }
+
+  const amountResult = rouletteMode === "donation" ? sanitizeDonationAmount(donationAmount) : { ok: true, value: null };
+  if (!amountResult.ok) return { error: "후원 금액은 0 이상의 숫자로 입력해주세요." };
+
+  return {
+    key,
+    rouletteMode,
+    cleanOptions,
+    donationAmount: amountResult.value,
+    cooldownSec: cooldownSec !== undefined ? sanitizeCooldown(cooldownSec) : undefined,
+    userCooldownSec: userCooldownSec !== undefined ? sanitizeCooldown(userCooldownSec, 0) : undefined,
+    allowChatAdd: !!allowChatAdd,
+    spinStyle,
+  };
 }
 
 // 관리 페이지에 표시할 앱 버전. 시작 시 한 번만 읽음.
@@ -132,7 +233,9 @@ function createApp() {
     })
   );
 
-  // 데이터 변경을 실시간으로 밀어주는 스트림. 클라이언트는 이 이벤트를 받으면 해당 목록만 다시 조회.
+  // 데이터 변경을 실시간으로 밀어주는 스트림. 대부분의 이벤트는 "무언가 바뀌었다"는 신호만
+  // 담아 클라이언트가 해당 목록을 다시 조회하게 하고, roulette-spin처럼 그 자리에서 재조회할
+  // 상태가 없는 1회성 이벤트는 payload에 실제 데이터를 함께 실어 보낸다.
   app.get("/api/events", (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -142,7 +245,7 @@ function createApp() {
     res.write("\n");
 
     const listeners = SSE_EVENTS.map((type) => {
-      const handler = () => res.write(`data: ${JSON.stringify({ type })}\n\n`);
+      const handler = (payload) => res.write(`data: ${JSON.stringify({ type, payload })}\n\n`);
       eventBus.on(type, handler);
       return [type, handler];
     });
@@ -194,6 +297,18 @@ function createApp() {
     })
   );
 
+  // 핑/업타임/명령어만 응답 문구 수정 가능. 나머지 시스템 명령어는 판정 로직이 고정이라 대상 아님
+  app.patch(
+    "/api/system-commands/:key/response",
+    wrap((req, res) => {
+      const { key } = req.params;
+      if (!isSystemCommandEditable(key)) return fail(res, 400, "이 명령어는 응답을 수정할 수 없어요.");
+      const { response } = req.body || {};
+      const updated = systemCommandStore.setResponse(key, response);
+      ok(res, { key, ...updated });
+    })
+  );
+
   // ---- 유저(커스텀) 명령어 ----
   app.get(
     "/api/commands",
@@ -205,7 +320,7 @@ function createApp() {
   app.post(
     "/api/commands",
     wrap((req, res) => {
-      const { name, response, permission, cooldownSec, userCooldownSec, listed, description } =
+      const { name, response, permission, cooldownSec, userCooldownSec, listed, description, noPrefix } =
         req.body || {};
       if (!name || !name.trim()) return fail(res, 400, "명령어 이름을 입력해주세요.");
       if (!response || !response.trim()) return fail(res, 400, "응답 메시지를 입력해주세요.");
@@ -213,6 +328,9 @@ function createApp() {
       const key = name.trim().replace(new RegExp(`^\\${config.commandPrefix}`), "");
       if (RESERVED_NAMES.has(key)) return fail(res, 400, `'${key}'는 기본 명령어 이름이라 사용할 수 없어요.`);
       if (commandStore.has(key)) return fail(res, 400, `'${key}' 명령어가 이미 있어요.`);
+      if (rouletteStore.chatModeNames().includes(key)) {
+        return fail(res, 400, `'${key}'는 룰렛 명령어로 이미 등록되어 있어 사용할 수 없어요.`);
+      }
 
       const created = commandStore.add(key, response, {
         permission,
@@ -220,6 +338,7 @@ function createApp() {
         userCooldownSec: userCooldownSec !== undefined ? sanitizeCooldown(userCooldownSec) : undefined,
         listed,
         description,
+        noPrefix,
       });
       ok(res, { name: key, ...created });
     })
@@ -229,7 +348,7 @@ function createApp() {
     "/api/commands/:name",
     wrap((req, res) => {
       const { name } = req.params;
-      const { response, permission, cooldownSec, userCooldownSec, listed, description } =
+      const { response, permission, cooldownSec, userCooldownSec, listed, description, noPrefix } =
         req.body || {};
 
       if (!commandStore.has(name)) return fail(res, 404, `'${name}' 명령어를 찾을 수 없어요.`);
@@ -241,6 +360,7 @@ function createApp() {
         ...(userCooldownSec !== undefined ? { userCooldownSec: sanitizeCooldown(userCooldownSec) } : {}),
         ...(listed !== undefined ? { listed } : {}),
         ...(description !== undefined ? { description } : {}),
+        ...(noPrefix !== undefined ? { noPrefix: !!noPrefix } : {}),
       });
 
       ok(res, { name, ...commandStore.get(name) });
@@ -354,6 +474,73 @@ function createApp() {
     })
   );
 
+  // ---- 룰렛 ----
+  app.get(
+    "/api/roulette",
+    wrap((req, res) => {
+      ok(res, rouletteStore.all());
+    })
+  );
+
+  app.post(
+    "/api/roulette",
+    wrap((req, res) => {
+      const result = validateRouletteInput(req.body);
+      if (result.error) return fail(res, 400, result.error);
+
+      const created = rouletteStore.add(result.key, result.rouletteMode, result.cleanOptions, {
+        cooldownSec: result.cooldownSec,
+        userCooldownSec: result.userCooldownSec,
+        donationAmount: result.donationAmount,
+        allowChatAdd: result.allowChatAdd,
+        spinStyle: result.spinStyle,
+      });
+      ok(res, created);
+    })
+  );
+
+  app.put(
+    "/api/roulette/:id",
+    wrap((req, res) => {
+      const { id } = req.params;
+      if (!rouletteStore.get(id)) return fail(res, 404, "해당 룰렛을 찾을 수 없어요.");
+
+      const result = validateRouletteInput(req.body, id);
+      if (result.error) return fail(res, 400, result.error);
+
+      const updated = rouletteStore.update(id, {
+        name: result.key,
+        mode: result.rouletteMode,
+        options: result.cleanOptions,
+        donationAmount: result.donationAmount,
+        cooldownSec: result.cooldownSec,
+        userCooldownSec: result.userCooldownSec,
+        allowChatAdd: result.allowChatAdd,
+        spinStyle: result.spinStyle,
+      });
+      ok(res, updated);
+    })
+  );
+
+  app.patch(
+    "/api/roulette/:id/enabled",
+    wrap((req, res) => {
+      const { enabled } = req.body || {};
+      const updated = rouletteStore.setEnabled(req.params.id, !!enabled);
+      if (!updated) return fail(res, 404, "해당 룰렛을 찾을 수 없어요.");
+      ok(res, updated);
+    })
+  );
+
+  app.delete(
+    "/api/roulette/:id",
+    wrap((req, res) => {
+      const removed = rouletteStore.remove(req.params.id);
+      if (!removed) return fail(res, 404, "해당 룰렛을 찾을 수 없어요.");
+      ok(res, { id: req.params.id });
+    })
+  );
+
   // ---- 계정 연동 ----
   app.get(
     "/api/auth/status",
@@ -362,7 +549,7 @@ function createApp() {
         clientId: config.clientId || "",
         hasClientSecret: !!config.clientSecret,
         channelId: config.channelId || "",
-        redirectUri: config.redirectUri || "",
+        redirectUri: config.redirectUriExplicit ? config.redirectUri || "" : "",
         bot: botControl.getStatus(),
       });
     })
@@ -397,9 +584,10 @@ function createApp() {
         } catch (err) {
           return fail(res, 400, "Redirect URI 형식이 올바르지 않아요. http://localhost:포트/callback 형태여야 해요.");
         }
-        if (trimmed !== config.redirectUri) {
+        if (trimmed !== config.redirectUri || !config.redirectUriExplicit) {
           redirectUriChanged = true;
           config.redirectUri = trimmed;
+          config.redirectUriExplicit = true;
           updates.REDIRECT_URI = trimmed;
           if (parsed.port) {
             config.webPort = Number(parsed.port);
@@ -417,7 +605,7 @@ function createApp() {
         clientId: config.clientId || "",
         hasClientSecret: !!config.clientSecret,
         channelId: config.channelId || "",
-        redirectUri: config.redirectUri || "",
+        redirectUri: config.redirectUriExplicit ? config.redirectUri || "" : "",
         redirectUriChanged,
       });
     })
@@ -554,6 +742,82 @@ function createApp() {
         logWindow = null;
       });
       ok(res, { opened: true });
+    })
+  );
+
+  // ---- 데이터 백업 ----
+  // 유저 명령어/금칙어/시스템 명령어 설정/출석 기록/룰렛을 파일 하나로 내보내거나 불러온다.
+  // 치지직 인가 토큰은 백업 대상에서 제외됨 (src/backup.js 참고).
+  app.post(
+    "/api/backup/export",
+    wrap(async (req, res) => {
+      if (!isElectron || !electronMod.dialog) {
+        return fail(res, 400, "이 실행 환경(터미널)에서는 저장 위치 선택 창을 열 수 없어요. Electron 앱(npm start)에서 실행해주세요.");
+      }
+      const defaultName = `새벽봇_백업_${kst.dateString().replace(/-/g, "")}.json`;
+      const result = await electronMod.dialog.showSaveDialog({
+        title: "데이터 백업 저장",
+        defaultPath: defaultName,
+        filters: [{ name: "새벽봇 백업 파일", extensions: ["json"] }],
+      });
+      if (result.canceled || !result.filePath) return ok(res, { saved: false });
+
+      backup.exportBackup(result.filePath);
+      ok(res, { saved: true, path: result.filePath });
+    })
+  );
+
+  app.post(
+    "/api/backup/import",
+    wrap(async (req, res) => {
+      if (!isElectron || !electronMod.dialog) {
+        return fail(res, 400, "이 실행 환경(터미널)에서는 파일 선택 창을 열 수 없어요. Electron 앱(npm start)에서 실행해주세요.");
+      }
+      const result = await electronMod.dialog.showOpenDialog({
+        title: "백업 파일 불러오기",
+        filters: [{ name: "새벽봇 백업 파일", extensions: ["json"] }],
+        properties: ["openFile"],
+      });
+      if (result.canceled || !result.filePaths || !result.filePaths[0]) return ok(res, { restored: false });
+
+      const restoredKeys = backup.importBackup(result.filePaths[0]);
+      ok(res, { restored: true, keys: restoredKeys, path: result.filePaths[0] });
+    })
+  );
+
+  // ---- 오버레이 (OBS 브라우저 소스) ----
+  // /overlay.html은 정적 파일로 그대로 서빙됨. 스핀 스타일은 룰렛마다 따로 저장되고, 여기서는
+  // 미리보기용 테스트 스핀만 처리. 포트는 위 계정 연동의 Redirect URI 저장 시 함께 반영됨.
+
+  // 오버레이 미리보기용 테스트 스핀. 등록된 룰렛이 있으면 그중 하나를 무작위로, 없으면 예시 데이터로 재생
+  app.post(
+    "/api/overlay/test-spin",
+    wrap((req, res) => {
+      const enabledEntries = rouletteStore.all().filter((e) => e.enabled && (e.options || []).length);
+      const sample = enabledEntries.length
+        ? enabledEntries[Math.floor(Math.random() * enabledEntries.length)]
+        : null;
+      const options = sample
+        ? sample.options
+        : [
+            { text: "점메추", probability: 25 },
+            { text: "라면", probability: 25 },
+            { text: "짜장면", probability: 25 },
+            { text: "짬뽕", probability: 25 },
+          ];
+      const name = sample ? sample.name : "테스트";
+      const style = sample ? sample.spinStyle || "wheel" : "wheel";
+      const result = rouletteStore.pickOption({ options });
+
+      eventBus.emit("roulette-spin", {
+        id: sample ? sample.id : "test",
+        name,
+        mode: sample ? sample.mode : "chat",
+        options,
+        result,
+        style,
+      });
+      ok(res, { triggered: true, name, result, style });
     })
   );
 

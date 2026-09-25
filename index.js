@@ -5,10 +5,9 @@
 const config = require("./src/config");
 const official = require("./src/official/chzzkOfficial");
 const oauthClient = require("./src/official/oauthClient");
-const { handleChatMessage } = require("./src/commands");
+const { handleChatMessage, handleDonation } = require("./src/commands");
 const { startWebServer } = require("./src/web/server");
 const botControl = require("./src/botControl");
-const commandStore = require("./src/commandStore");
 const { botLog } = require("./src/utils");
 const eventBus = require("./src/eventBus");
 
@@ -40,7 +39,9 @@ function registerHandlersOnce() {
   });
 
   official.on("donation", (evt) => {
-    // TODO: 후원 감지 후 알림 / 룰렛 트리거
+    handleDonation(evt).catch((err) => {
+      console.error("[commands] 후원 처리 중 오류:", err);
+    });
   });
 
   official.on("statusChange", ({ connected }) => {
@@ -117,7 +118,6 @@ async function startBot() {
 function stopBot() {
   official.stop();
   oauthClient.stopAutoRefresh();
-  commandStore.flush(); // 디바운스된 사용 횟수 저장을 즉시 처리
   if (webServerInstance) webServerInstance.close();
 }
 

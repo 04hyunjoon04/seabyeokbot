@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>새벽봇 룰렛 오버레이</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, Roboto, sans-serif;
+  }
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .view { display: none; flex-direction: column; align-items: center; gap: 14px; opacity: 1; }
+  .view.active { display: flex; }
+  /* 시작 시엔 트랜지션 없이 즉시 나타나고, 종료 시에만 서서히 페이드아웃 */
+  .view.active.fading { opacity: 0; transition: opacity 0.4s ease; }
+
+  .roulette-title {
+    background: rgba(20, 20, 30, 0.72);
+    color: white;
+    padding: 8px 22px;
+    border-radius: 999px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .roulette-title.show { opacity: 1; }
+
+  /* ---- 회전 휠 ---- */
+  #wheelWrap {
+    position: relative;
+    width: 360px;
+    height: 360px;
+  }
+  #wheelPointer {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 18px solid transparent;
+    border-right: 18px solid transparent;
+    border-top: 28px solid #ffce31;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4));
+    z-index: 3;
+  }
+  #wheel {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 6px solid #1f2430;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    transform: rotate(0deg);
+  }
+  #wheelHub {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 26px;
+    height: 26px;
+    margin: -13px 0 0 -13px;
+    background: #1f2430;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    z-index: 2;
+  }
+  .wheel-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    font-size: 15px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    white-space: nowrap;
+    transform-origin: 0 0;
+  }
+
+  /* ---- 슬롯머신 ---- */
+  #slotWrap {
+    position: relative;
+    width: 320px;
+    height: 192px;
+    background: rgba(15, 15, 22, 0.78);
+    border-radius: 16px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+    border: 4px solid #1f2430;
+  }
+  #slotReel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  .slot-item {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+  #slotWindow {
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    height: 64px;
+    border-top: 2px solid #ffce31;
+    border-bottom: 2px solid #ffce31;
+    box-shadow: 0 0 18px rgba(255, 206, 49, 0.35) inset;
+    pointer-events: none;
+    z-index: 2;
+  }
+  #slotFadeTop, #slotFadeBottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 64px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  #slotFadeTop { top: 0; background: linear-gradient(to bottom, rgba(15,15,22,0.9), rgba(15,15,22,0)); }
+  #slotFadeBottom { bottom: 0; background: linear-gradient(to top, rgba(15,15,22,0.9), rgba(15,15,22,0)); }
+
+  .result-banner {
+    background: rgba(20, 20, 30, 0.78);
+    color: #ffce31;
+    padding: 10px 26px;
+    border-radius: 999px;
+    font-size: 24px;
+    font-weight: 800;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  .result-banner.show { opacity: 1; transform: scale(1); }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div class="view" id="view-wheel">
+    <div class="roulette-title" id="wheelTitle"></div>
+    <div id="wheelWrap">
+      <div id="wheelPointer"></div>
+      <div id="wheel"></div>
+      <div id="wheelHub"></div>
+    </div>
+    <div class="result-banner" id="wheelResult"></div>
+  </div>
+
+  <div class="view" id="view-slot">
+    <div class="roulette-title" id="slotTitle"></div>
+    <div id="slotWrap">
+      <div id="slotReel"></div>
+      <div id="slotWindow"></div>
+      <div id="slotFadeTop"></div>
+      <div id="slotFadeBottom"></div>
+    </div>
+    <div class="result-banner" id="slotResult"></div>
+  </div>
+</div>
+
+<script>
+// 방송 화면 오버레이(OBS 브라우저 소스). 룰렛이 실제로 당첨될 때마다 서버가 보내는
+// roulette-spin 이벤트를 받아 회전 휠 또는 슬롯머신 애니메이션을 재생한다.
+
+const SLICE_COLORS = ['#e74c3c', '#f39c12', '#2ecc71', '#3498db', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
+const SPIN_DURATION_MS = 3600;
+const RECOIL_MS = 260; // 목표를 살짝 지나친 뒤 되돌아오는 반동 구간 시간
+const WHEEL_OVERSHOOT_DEG = 6; // 휠이 목표 각도를 지나치는 고정 각도(전체 회전량과 무관)
+const SLOT_OVERSHOOT_PX = 8; // 슬롯 릴이 목표 지점을 지나치는 고정 픽셀(전체 스크롤량과 무관)
+const RESULT_HOLD_MS = 3200;
+const FADE_OUT_MS = 400; // CSS의 .view opacity transition 시간과 맞춤
+
+let currentStyle = 'wheel';
+let spinning = false;
+
+// 스핀 스타일은 룰렛마다 저장되며 roulette-spin 이벤트의 payload.style로 전달됨
+function setActiveView(style) {
+  currentStyle = style === 'slot' ? 'slot' : 'wheel';
+  document.getElementById('view-wheel').classList.toggle('active', currentStyle === 'wheel');
+  document.getElementById('view-slot').classList.toggle('active', currentStyle === 'slot');
+}
+
+// ---- 회전 휠 ----
+// 항목별 probability(확률%)에 비례한 부채꼴 각도를 계산. 값이 없거나 0이면 1로 취급(균등 분배)
+function buildSlices(options) {
+  const totalProbability = options.reduce((sum, o) => sum + (o.probability > 0 ? o.probability : 1), 0);
+  let cursor = 0;
+  return options.map((o) => {
+    const probability = o.probability > 0 ? o.probability : 1;
+    const angle = (probability / totalProbability) * 360;
+    const slice = { text: o.text, startAngle: cursor, angle };
+    cursor += angle;
+    return slice;
+  });
+}
+
+function buildWheel(slices) {
+  const wheel = document.getElementById('wheel');
+  wheel.querySelectorAll('.wheel-label').forEach((el) => el.remove());
+  wheel.style.transition = 'none';
+  wheel.style.transform = 'rotate(0deg)';
+
+  const stops = slices.map((slice, i) => {
+    const color = SLICE_COLORS[i % SLICE_COLORS.length];
+    return `${color} ${slice.startAngle}deg ${slice.startAngle + slice.angle}deg`;
+  });
+  wheel.style.background = `conic-gradient(${stops.join(', ')})`;
+
+  const radius = 118;
+  slices.forEach((slice) => {
+    const mid = slice.startAngle + slice.angle / 2;
+    const label = document.createElement('div');
+    label.className = 'wheel-label';
+    label.textContent = slice.text;
+    label.style.transform = `rotate(${mid}deg) translate(${radius}px, -8px) rotate(${-mid}deg)`;
+    wheel.appendChild(label);
+  });
+
+  // 리플로우를 강제해 transition:none이 실제로 적용된 뒤 회전을 시작하게 함
+  wheel.getBoundingClientRect();
+}
+
+function spinWheel(payload) {
+  const rawOptions = payload.options && payload.options.length ? payload.options : [{ text: payload.result, probability: 1 }];
+  const slices = buildSlices(rawOptions);
+  let winSlice = slices.find((s) => s.text === payload.result);
+  if (!winSlice) winSlice = slices[0];
+
+  buildWheel(slices);
+
+  const centerAngle = winSlice.startAngle + winSlice.angle / 2;
+  const fullSpins = 5;
+  const finalAngle = fullSpins * 360 + (360 - centerAngle);
+
+  const wheel = document.getElementById('wheel');
+  const title = document.getElementById('wheelTitle');
+  const resultEl = document.getElementById('wheelResult');
+  title.textContent = payload.name || '룰렛';
+  title.classList.add('show');
+  resultEl.classList.remove('show');
+
+  requestAnimationFrame(() => {
+    // 1단계: 천천히 가속했다가 천천히 감속하며 목표 각도를 고정된 작은 각도만큼 지나침
+    wheel.style.transition = `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    wheel.style.transform = `rotate(${finalAngle + WHEEL_OVERSHOOT_DEG}deg)`;
+  });
+
+  setTimeout(() => {
+    // 2단계: 지나친 만큼 부드럽게 가감속하며 반대 방향으로 되돌아와 정확히 목표 각도에서 정지
+    wheel.style.transition = `transform ${RECOIL_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    wheel.style.transform = `rotate(${finalAngle}deg)`;
+  }, SPIN_DURATION_MS);
+
+  setTimeout(() => {
+    resultEl.textContent = payload.result;
+    resultEl.classList.add('show');
+  }, SPIN_DURATION_MS + RECOIL_MS);
+}
+
+// ---- 슬롯머신 ----
+function spinSlot(payload) {
+  const rawOptions = payload.options && payload.options.length ? payload.options : [{ text: payload.result, probability: 1 }];
+  const itemHeight = 64;
+  const repeats = 8;
+
+  const reel = document.getElementById('slotReel');
+  reel.innerHTML = '';
+  reel.style.transition = 'none';
+  reel.style.transform = 'translateY(0px)';
+
+  // 확률(probability)이 높은 항목일수록 릴에 더 자주 등장하게 해서 당첨 확률 차이를 시각적으로 반영.
+  // 평균 확률 대비 상대값으로 반복 횟수를 정하고, 릴 길이가 과도해지지 않게 최대 5회로 제한
+  const totalProbability = rawOptions.reduce((sum, o) => sum + (o.probability > 0 ? o.probability : 1), 0);
+  const avgProbability = totalProbability / rawOptions.length;
+  const weightedTexts = rawOptions.map((o) => {
+    const probability = o.probability > 0 ? o.probability : 1;
+    const copies = Math.min(5, Math.max(1, Math.round(probability / avgProbability)));
+    return { text: o.text, copies };
+  });
+
+  const flat = [];
+  for (let r = 0; r < repeats; r++) {
+    for (const item of weightedTexts) {
+      for (let c = 0; c < item.copies; c++) flat.push(item.text);
+    }
+  }
+  // 뒤쪽 구간에서 결과와 일치하는 항목을 목표로 삼아 충분히 스크롤되게 함
+  const tailWindow = weightedTexts.reduce((sum, item) => sum + item.copies, 0);
+  let targetIndex = -1;
+  for (let i = flat.length - tailWindow; i < flat.length; i++) {
+    if (flat[i] === payload.result) { targetIndex = i; break; }
+  }
+  if (targetIndex === -1) targetIndex = flat.length - 1;
+
+  flat.forEach((text) => {
+    const item = document.createElement('div');
+    item.className = 'slot-item';
+    item.textContent = text;
+    reel.appendChild(item);
+  });
+
+  reel.getBoundingClientRect();
+
+  const viewportHeight = 192;
+  const targetY = -(targetIndex * itemHeight) + (viewportHeight / 2 - itemHeight / 2);
+
+  const title = document.getElementById('slotTitle');
+  const resultEl = document.getElementById('slotResult');
+  title.textContent = payload.name || '룰렛';
+  title.classList.add('show');
+  resultEl.classList.remove('show');
+
+  requestAnimationFrame(() => {
+    // 1단계: 천천히 가속했다가 천천히 감속하며 목표 지점을 고정된 작은 픽셀만큼 지나침
+    reel.style.transition = `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    reel.style.transform = `translateY(${targetY - SLOT_OVERSHOOT_PX}px)`;
+  });
+
+  setTimeout(() => {
+    // 2단계: 지나친 만큼 부드럽게 가감속하며 반대 방향으로 되돌아와 정확히 목표 지점에서 정지
+    reel.style.transition = `transform ${RECOIL_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    reel.style.transform = `translateY(${targetY}px)`;
+  }, SPIN_DURATION_MS);
+
+  setTimeout(() => {
+    resultEl.textContent = payload.result;
+    resultEl.classList.add('show');
+  }, SPIN_DURATION_MS + RECOIL_MS);
+}
+
+function playSpin(payload) {
+  if (!payload || !payload.result) return;
+  if (spinning) return; // 이전 스핀이 끝나기 전에 새 스핀이 오면 무시 (겹침 방지)
+  spinning = true;
+
+  setActiveView(payload.style);
+  if (currentStyle === 'slot') spinSlot(payload);
+  else spinWheel(payload);
+
+  setTimeout(() => {
+    document.getElementById('wheelResult').classList.remove('show');
+    document.getElementById('slotResult').classList.remove('show');
+    document.getElementById('wheelTitle').classList.remove('show');
+    document.getElementById('slotTitle').classList.remove('show');
+
+    // 화면 전환처럼 뚝 끊기지 않도록, 결과 문구가 사라지는 동시에 휠/슬롯도 서서히 페이드아웃한 뒤 완전히 숨김
+    const activeView = currentStyle === 'slot' ? document.getElementById('view-slot') : document.getElementById('view-wheel');
+    activeView.classList.add('fading');
+    setTimeout(() => {
+      activeView.classList.remove('active', 'fading');
+      spinning = false;
+    }, FADE_OUT_MS);
+  }, SPIN_DURATION_MS + RECOIL_MS + RESULT_HOLD_MS);
+}
+
+function connectEventStream() {
+  const source = new EventSource('/api/events');
+  source.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (_err) { return; }
+    if (!msg) return;
+    if (msg.type === 'roulette-spin') playSpin(msg.payload);
+  };
+  // 연결이 끊기면 브라우저가 자동으로 재연결을 시도함
+}
+
+connectEventStream();
+</script>
+</body>
+</html>

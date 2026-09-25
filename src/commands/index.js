@@ -4,6 +4,8 @@ const config = require("../config");
 const official = require("../official/chzzkOfficial");
 const store = require("../commandStore");
 const attendanceStore = require("../attendanceStore");
+const rouletteStore = require("../rouletteStore");
+const eventBus = require("../eventBus");
 const { cooldown, permissions, template: templateUtil } = require("../utils");
 const { hasPermission } = permissions;
 const { render, pickRandom } = templateUtil;
@@ -13,6 +15,7 @@ const {
   getEffectivePermission,
   getEffectiveCooldownSec,
   getEffectiveEnabled,
+  getEffectiveResponse,
 } = require("../web/systemCommands");
 
 const DEBUG = process.env.DEBUG === "1";
@@ -30,6 +33,7 @@ const RESERVED_NAMES = new Set([
   "업타임",
   "핑",
   "출첵",
+  "목록추가",
 ]);
 
 function parseMessage(content) {
@@ -45,6 +49,12 @@ function parseMessage(content) {
   return { name: name.trim(), rest };
 }
 
+// {업타임} 자리에 경과 시간(또는 방송중 아님 문구)을 채워 대시보드에서 수정한 응답 문구를 완성
+function applyUptimeTemplate(elapsedText) {
+  const template = getEffectiveResponse("업타임");
+  return template.replace(/\{업타임\}/g, elapsedText);
+}
+
 async function handleUptime() {
   try {
     const detail = await official.getLiveDetail(config.channelId);
@@ -52,7 +62,7 @@ async function handleUptime() {
     if (DEBUG) console.log("[debug] live.detail 응답:", JSON.stringify(detail).slice(0, 2000));
 
     if (!detail || detail.status !== "OPEN") {
-      return "업타임: [방송중이 아님]";
+      return applyUptimeTemplate("[방송중이 아님]");
     }
 
     const openDateRaw = detail.openDate;
@@ -73,7 +83,7 @@ async function handleUptime() {
     const h = Math.floor(diffSec / 3600);
     const m = Math.floor((diffSec % 3600) / 60);
     const s = diffSec % 60;
-    return `업타임: ${h}시간 ${m}분 ${s}초`;
+    return applyUptimeTemplate(`${h}시간 ${m}분 ${s}초`);
   } catch (err) {
     console.error("[commands] 업타임 조회 실패:", err.message);
     return "업타임 정보를 가져오는 중 오류가 발생했어요.";
@@ -90,6 +100,17 @@ async function isChannelLive() {
   }
 }
 
+// 유저 명령어 응답 실행 (! 있는 명령어와 ! 없이 반응하는 명령어가 공통으로 사용)
+async function runCustomCommand(name, custom, ctx) {
+  if (!hasPermission(ctx.userRoleCode, custom.permission)) return;
+  if (cooldown.isOnCooldown(name, ctx.userId, custom.cooldownSec, custom.userCooldownSec)) return;
+
+  cooldown.markUsed(name, ctx.userId);
+
+  const template = pickRandom(custom.responses);
+  return chat.say(render(template, ctx));
+}
+
 // 시스템 명령어 전체 쿨타임 체크 (대시보드 설정값 반영)
 function checkSystemCooldown(key, userId) {
   const sec = getEffectiveCooldownSec(key);
@@ -99,7 +120,7 @@ function checkSystemCooldown(key, userId) {
   return false;
 }
 
-const SYSTEM_COMMAND_KEYS = ["핑", "업타임", "명령어", "출첵", "추가", "수정", "제거"];
+const SYSTEM_COMMAND_KEYS = ["핑", "업타임", "명령어", "출첵", "추가", "수정", "제거", "목록추가"];
 
 function listCommands() {
   const names = Object.entries(store.all())
@@ -111,7 +132,7 @@ function listCommands() {
     (key) => getEffectiveEnabled(key) && getEffectivePermission(key) === "everyone"
   ).map((key) => `${config.commandPrefix}${key}`);
   const all = [...builtins, ...names];
-  return `명령어: ${all.join(", ")}`;
+  return getEffectiveResponse("명령어").replace(/\{목록\}/g, all.join(", "));
 }
 
 async function handleChatMessage(evt) {
@@ -123,14 +144,21 @@ async function handleChatMessage(evt) {
   });
   if (moderated) return; // 제재된 메시지는 명령어로 처리하지 않음
 
-  const parsed = parseMessage(content);
-  if (!parsed) return;
-
-  const { name, rest } = parsed;
   const nickname = (evt.profile && evt.profile.nickname) || "익명";
   const userId = evt.senderChannelId || nickname;
   const userRoleCode = evt.userRoleCode;
 
+  const parsed = parseMessage(content);
+  if (!parsed) {
+    // ! 없이 반응하도록 설정된 유저 명령어. 메시지 전체가 명령어 이름과 정확히 일치할 때만 반응
+    const noPrefixCmd = store.get(content);
+    if (noPrefixCmd && noPrefixCmd.enabled && noPrefixCmd.noPrefix) {
+      return runCustomCommand(content, noPrefixCmd, { nickname, userId, userRoleCode, args: "" });
+    }
+    return;
+  }
+
+  const { name, rest } = parsed;
   const ctx = { nickname, userId, userRoleCode, args: rest };
 
   if (DEBUG) console.log(`[chat] ${nickname}(${userRoleCode}): ${content}`);
@@ -149,6 +177,9 @@ async function handleChatMessage(evt) {
 
     if (RESERVED_NAMES.has(cmdName)) {
       return chat.say(`'${cmdName}' 은(는) 기본 제공 명령어라 덮어쓸 수 없어요.`);
+    }
+    if (rouletteStore.chatModeNames().includes(cmdName)) {
+      return chat.say(`'${cmdName}' 은(는) 룰렛 명령어로 이미 등록되어 있어 사용할 수 없어요.`);
     }
     store.add(cmdName, body);
     return chat.say(`'${config.commandPrefix}${cmdName}' 명령어가 추가되었습니다.`);
@@ -182,12 +213,38 @@ async function handleChatMessage(evt) {
     );
   }
 
+  // ---- 룰렛 결과 항목 채팅 추가 (해당 룰렛에서 "채팅으로 항목 추가 허용"을 켠 경우만) ----
+  if (name === "목록추가" && rest) {
+    if (!getEffectiveEnabled("목록추가")) return;
+    if (!hasPermission(userRoleCode, getEffectivePermission("목록추가"))) return;
+    if (checkSystemCooldown("목록추가", userId)) return;
+
+    const spaceIdx = rest.indexOf(" ");
+    if (spaceIdx === -1) return chat.say("사용법: !목록추가 [룰렛이름] [추가할 문구]");
+    let rouletteName = rest.slice(0, spaceIdx).trim();
+    const optionText = rest.slice(spaceIdx + 1).trim();
+    if (rouletteName.startsWith(config.commandPrefix)) rouletteName = rouletteName.slice(config.commandPrefix.length);
+    if (!rouletteName || !optionText) return chat.say("사용법: !목록추가 [룰렛이름] [추가할 문구]");
+
+    const target = rouletteStore.findByName(rouletteName);
+    if (!target) return chat.say(`'${rouletteName}' 룰렛을 찾을 수 없어요.`);
+    if (!target.allowChatAdd) return chat.say(`'${rouletteName}' 룰렛은 채팅으로 항목을 추가할 수 없어요.`);
+
+    const updated = rouletteStore.addChatOption(target.id, optionText);
+    if (!updated) return chat.say("항목 추가에 실패했어요.");
+    const added = updated.options[updated.options.length - 1];
+    const addedProbability = added ? added.probability : 0;
+    return chat.say(
+      `'${rouletteName}' 룰렛에 '${optionText}' 항목을 추가했어요. (총 ${updated.options.length}개, 이번 항목 확률 ${addedProbability}%)`
+    );
+  }
+
   // ---- 기본 제공 명령어 (기본 everyone, 대시보드에서 권한 조정 가능) ----
   if (name === "핑") {
     if (!getEffectiveEnabled("핑")) return;
     if (!hasPermission(userRoleCode, getEffectivePermission("핑"))) return;
     if (checkSystemCooldown("핑", userId)) return;
-    return chat.say("퐁! 봇이 정상적으로 동작하고 있어요 :>");
+    return chat.say(getEffectiveResponse("핑"));
   }
 
   if (name === "명령어") {
@@ -223,18 +280,65 @@ async function handleChatMessage(evt) {
     );
   }
 
+  // ---- 룰렛 (일반 명령어 모드, 이름이 정확히 일치할 때만 반응) ----
+  const rouletteChat = rouletteStore.findMatch("chat", name);
+  if (rouletteChat) {
+    const cooldownKey = `roulette:${rouletteChat.id}`;
+    if (cooldown.isOnCooldown(cooldownKey, userId, rouletteChat.cooldownSec, rouletteChat.userCooldownSec)) return;
+
+    cooldown.markUsed(cooldownKey, userId);
+
+    const template = rouletteStore.pickOption(rouletteChat);
+    eventBus.emit("roulette-spin", {
+      id: rouletteChat.id,
+      name: rouletteChat.name,
+      mode: rouletteChat.mode,
+      options: rouletteChat.options,
+      result: template,
+      style: rouletteChat.spinStyle || "wheel",
+    });
+    return chat.say(render(template, ctx));
+  }
+
   // ---- 커스텀 명령어 ----
   const custom = store.get(name);
   if (custom && custom.enabled) {
-    if (!hasPermission(userRoleCode, custom.permission)) return;
-    if (cooldown.isOnCooldown(name, userId, custom.cooldownSec, custom.userCooldownSec)) return;
-
-    cooldown.markUsed(name, userId);
-    store.incrementUses(name);
-
-    const template = pickRandom(custom.responses);
-    return chat.say(render(template, ctx));
+    return runCustomCommand(name, custom, ctx);
   }
 }
 
-module.exports = { handleChatMessage, parseMessage, RESERVED_NAMES };
+// 후원 이벤트 처리. 후원 문구(donationText)가 등록된 룰렛 이름과 정확히 일치할 때만 반응 (! 없음)
+// donationAmount가 지정된 룰렛은 후원 금액까지 정확히 일치해야 반응하고, 지정 안 됐으면 금액 상관없이 반응
+async function handleDonation(evt) {
+  const text = (evt.donationText || "").trim();
+  if (!text) return;
+
+  const entry = rouletteStore.findMatch("donation", text);
+  if (!entry) return;
+
+  if (entry.donationAmount !== null && entry.donationAmount !== undefined) {
+    const paidAmount = Number(evt.payAmount);
+    if (!Number.isFinite(paidAmount) || paidAmount !== entry.donationAmount) return;
+  }
+
+  const nickname = evt.donatorNickname || "익명";
+  const userId = evt.donatorChannelId || nickname;
+
+  const cooldownKey = `roulette:${entry.id}`;
+  if (cooldown.isOnCooldown(cooldownKey, userId, entry.cooldownSec, entry.userCooldownSec)) return;
+
+  cooldown.markUsed(cooldownKey, userId);
+
+  const template = rouletteStore.pickOption(entry);
+  eventBus.emit("roulette-spin", {
+    id: entry.id,
+    name: entry.name,
+    mode: entry.mode,
+    options: entry.options,
+    result: template,
+    style: entry.spinStyle || "wheel",
+  });
+  return chat.say(render(template, { nickname }));
+}
+
+module.exports = { handleChatMessage, handleDonation, parseMessage, RESERVED_NAMES };

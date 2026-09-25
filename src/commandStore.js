@@ -13,6 +13,15 @@ function load() {
   try {
     const text = fs.readFileSync(config.commandsFilePath, "utf8");
     commands = JSON.parse(text);
+
+    let migrated = false;
+    for (const key of Object.keys(commands)) {
+      if (Object.prototype.hasOwnProperty.call(commands[key], "uses")) {
+        delete commands[key].uses;
+        migrated = true;
+      }
+    }
+    if (migrated) save();
   } catch (err) {
     if (err.code === "ENOENT") {
       commands = {};
@@ -60,7 +69,7 @@ function add(name, responseText, opts = {}) {
     enabled: true,
     listed: opts.listed ?? true,
     description: opts.description || "",
-    uses: 0,
+    noPrefix: !!opts.noPrefix,
   };
   save();
   return commands[key];
@@ -90,7 +99,7 @@ function setEnabled(name, enabled) {
   return commands[key];
 }
 
-const META_FIELDS = ["permission", "cooldownSec", "userCooldownSec", "listed", "description"];
+const META_FIELDS = ["permission", "cooldownSec", "userCooldownSec", "listed", "description", "noPrefix"];
 
 // 응답 문구 외 설정(권한/쿨타임/목록 노출 등)만 변경
 function setMeta(name, patch = {}) {
@@ -105,33 +114,6 @@ function setMeta(name, patch = {}) {
   return commands[key];
 }
 
-// 사용 횟수(uses) 증가는 메모리에 바로 반영, 파일 저장은 디바운스로 모아서 처리.
-// 응답 자체는 이 저장을 기다리지 않음.
-const USES_FLUSH_DELAY_MS = 2000;
-let usesFlushTimer = null;
-
-function incrementUses(name) {
-  const key = normalizeName(name);
-  if (!has(key)) return;
-  commands[key].uses = (commands[key].uses || 0) + 1;
-  if (!usesFlushTimer) {
-    usesFlushTimer = setTimeout(() => {
-      usesFlushTimer = null;
-      save();
-    }, USES_FLUSH_DELAY_MS);
-    if (usesFlushTimer.unref) usesFlushTimer.unref();
-  }
-}
-
-// 디바운스 대기 중인 저장을 즉시 실행 (종료 직전 호출)
-function flush() {
-  if (usesFlushTimer) {
-    clearTimeout(usesFlushTimer);
-    usesFlushTimer = null;
-    save();
-  }
-}
-
 load();
 
 module.exports = {
@@ -144,6 +126,4 @@ module.exports = {
   remove,
   setEnabled,
   setMeta,
-  incrementUses,
-  flush,
 };

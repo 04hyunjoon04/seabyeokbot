@@ -56,6 +56,12 @@ function mapEvent(data) {
     userRoleCode,
     chatChannelId: data.chatChannelId,
     messageTime: data.messageTime || Date.now(),
+    // 후원 이벤트 전용 필드. 채팅 이벤트에는 없음.
+    donationType: data.donationType,
+    donationText: data.donationText,
+    payAmount: data.payAmount,
+    donatorNickname: data.donatorNickname,
+    donatorChannelId: data.donatorChannelId,
   };
 }
 
